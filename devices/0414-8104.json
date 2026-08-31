@@ -1,0 +1,18 @@
+{
+  "vendor_id": "0414",
+  "product_id": "8104",
+  "name": "GIGABYTE AERO X16 ITE-829X keyboard",
+  "usage_page": "ff01",
+  "report_size": 9,
+  "tested_models": [],
+  "safe_effects": [],
+  "experimental_effects": [
+    "static",
+    "breathing",
+    "wave",
+    "fade",
+    "marquee",
+    "flash",
+    "raindrop"
+  ]
+}

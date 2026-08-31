@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "aero-keyboard-control"
+version = "0.0.1"
+description = "Linux RGB keyboard control for GIGABYTE Aero laptops"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "kulunkilabs" }]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Environment :: X11 Applications :: Qt",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+]
+
+[project.optional-dependencies]
+gui = ["PySide6>=6.7"]
+test = ["pytest>=8", "pytest-cov>=5"]
+
+[project.scripts]
+aero-kbd = "aero_keyboard.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aero_keyboard"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["hardware: tests that communicate with a real keyboard"]
