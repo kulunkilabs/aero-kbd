@@ -124,11 +124,18 @@ def build_set_effect_packet(
 
 
 def parse_effect_response(report: bytes | bytearray) -> EffectState:
-    """Decode and validate the state fields returned by GET_EFFECT."""
+    """Decode state returned by GET_EFFECT.
+
+    ITE-829X firmware 11.21.7 leaves the final response byte at zero rather than
+    returning an outbound-style checksum, so response identity is validated by
+    its report ID and command byte instead.
+    """
     if len(report) != REPORT_SIZE:
         raise ProtocolValidationError(f"effect response must be {REPORT_SIZE} bytes")
-    if checksum8(report[:-1]) != report[-1]:
-        raise ProtocolValidationError("effect response checksum is invalid")
+    if report[0] != REPORT_ID:
+        raise ProtocolValidationError("effect response report ID is invalid")
+    if report[1] != CMD_GET_EFFECT:
+        raise ProtocolValidationError("effect response command is invalid")
 
     effect_id = report[3]
     color_id = report[6]

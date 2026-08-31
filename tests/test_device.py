@@ -93,7 +93,7 @@ def test_firmware_query_sends_command_and_decodes_response():
 
 def test_effect_query_decodes_response():
     payload = bytes([0, CMD_GET_EFFECT, 0, Effect.STATIC, 3, 40, Color.BLUE, 0])
-    response = payload + bytes([checksum8(payload)])
+    response = payload + bytes([0])
     ioctl = FakeIoctl(response)
     keyboard = KeyboardDevice(_interface(), opener=lambda path, flags: 42, ioctl=ioctl)
     state = keyboard.effect_state()

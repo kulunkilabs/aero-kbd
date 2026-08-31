@@ -1,2 +1,2 @@
 # Permit the active local session to access only the ITE-829X RGB control HID.
-KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0414", ATTRS{idProduct}=="8104", ATTRS{bInterfaceNumber}=="03", TAG+="uaccess"
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ENV{ID_VENDOR_ID}=="0414", ENV{ID_MODEL_ID}=="8104", ENV{ID_USB_INTERFACE_NUM}=="03", TAG+="uaccess"

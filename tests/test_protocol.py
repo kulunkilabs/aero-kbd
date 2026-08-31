@@ -66,13 +66,13 @@ def test_build_packet_rejects_too_many_arguments():
 
 
 def test_parse_effect_response():
-    payload = bytes([0, CMD_GET_EFFECT, 0, Effect.STATIC, 3, 50, Color.WHITE, 0])
-    state = parse_effect_response(payload + bytes([checksum8(payload)]))
+    report = bytes([0, CMD_GET_EFFECT, 0, Effect.STATIC, 3, 50, Color.WHITE, 0, 0])
+    state = parse_effect_response(report)
     assert state.effect is Effect.STATIC
     assert state.color is Color.WHITE
     assert state.brightness == 50
 
 
-def test_parse_effect_response_rejects_bad_checksum():
-    with pytest.raises(ProtocolValidationError, match="checksum"):
+def test_parse_effect_response_rejects_unexpected_command():
+    with pytest.raises(ProtocolValidationError, match="command"):
         parse_effect_response(bytes(9))

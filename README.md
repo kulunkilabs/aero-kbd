@@ -8,8 +8,9 @@ Fedora and Arch-based systems, including Omarchy and CachyOS.
 
 ## Status
 
-This repository is in active hardware validation. Read-only device detection,
-the tested protocol core, and guarded static-color commands are implemented.
+The protocol core and guarded static-color commands are validated on a
+GIGABYTE AERO X16 1WH running keyboard firmware `11.21.7`. Read-only discovery,
+firmware/status queries, static colors, brightness, and off are implemented.
 Do not send arbitrary HID reports to the keyboard.
 
 ## Development setup

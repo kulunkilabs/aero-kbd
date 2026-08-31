@@ -4,7 +4,9 @@
   "name": "GIGABYTE AERO X16 ITE-829X keyboard",
   "usage_page": "ff01",
   "report_size": 9,
-  "tested_models": [],
+  "tested_models": [
+    "GIGABYTE AERO X16 1WH (firmware 11.21.7)"
+  ],
   "safe_effects": ["static"],
   "experimental_effects": [
     "breathing",
