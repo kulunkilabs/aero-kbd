@@ -1,0 +1,7 @@
+Aero Keyboard Control includes an independently structured implementation of
+the ITE-829X protocol based on reverse-engineering published by Misael Zapata in
+the MIT-licensed aeroctl-linux-indicator project:
+
+https://github.com/misaelzapata/aeroctl-linux-indicator
+
+Copyright for that prior work remains with its original author.

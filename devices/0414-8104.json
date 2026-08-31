@@ -5,9 +5,8 @@
   "usage_page": "ff01",
   "report_size": 9,
   "tested_models": [],
-  "safe_effects": [],
+  "safe_effects": ["static"],
   "experimental_effects": [
-    "static",
     "breathing",
     "wave",
     "fade",

@@ -8,9 +8,42 @@ Fedora and Arch-based systems, including Omarchy and CachyOS.
 
 ## Status
 
-This repository is in the planning and hardware-validation stage. Do not send
-arbitrary HID reports to the keyboard. The MVP will expose only validated,
-allow-listed commands.
+This repository is in active hardware validation. Read-only device detection,
+the tested protocol core, and guarded static-color commands are implemented.
+Do not send arbitrary HID reports to the keyboard.
+
+## Development setup
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -e '.[test]'
+.venv/bin/pytest
+.venv/bin/aero-kbd detect
+```
+
+Commands that communicate with the controller require the packaged udev rule.
+Until the AERO X16 1WH validation is complete, only the static firmware effect
+is allow-listed:
+
+```bash
+sudo install -Dm644 packaging/udev/70-aero-keyboard.rules \
+  /etc/udev/rules.d/70-aero-keyboard.rules
+sudo udevadm control --reload-rules
+sudo udevadm trigger --subsystem-match=hidraw --action=add
+```
+
+The rule is restricted to USB interface `03`, the controller's `0xFF01` RGB
+channel. It does not grant access to the normal typing interfaces. Log out and
+back in if the active-session ACL is not applied immediately.
+
+Then run:
+
+```bash
+aero-kbd firmware
+aero-kbd status
+aero-kbd set static white --brightness 50
+aero-kbd off
+```
 
 ## Design goals
 

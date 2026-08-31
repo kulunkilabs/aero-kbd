@@ -1,2 +1,2 @@
-# Permit the active local session to access the GIGABYTE ITE-829X control HID.
-SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0414", ATTRS{idProduct}=="8104", TAG+="uaccess"
+# Permit the active local session to access only the ITE-829X RGB control HID.
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0414", ATTRS{idProduct}=="8104", ATTRS{bInterfaceNumber}=="03", TAG+="uaccess"
