@@ -31,6 +31,8 @@ def test_window_exposes_expected_pages_and_safe_effect(window):
     assert window.navigation.count() == 3
     assert window.effect_combo.count() == 1
     assert window.effect_combo.currentData() is Effect.STATIC
+    assert Color.BLACK not in window.color_buttons
+    assert len(window.color_buttons) == 7
 
 
 def test_color_and_brightness_update_preview(window):
@@ -54,6 +56,23 @@ def test_hardware_state_updates_controls(window):
     assert window.selected_color is Color.PURPLE
     assert window.color_buttons[Color.PURPLE].isChecked()
     assert window.brightness_slider.value() == 25
+
+
+def test_off_state_keeps_last_visible_color_selected(window):
+    window.color_buttons[Color.BLUE].click()
+    window._load_state(
+        EffectState(
+            effect=Effect.STATIC,
+            speed=3,
+            brightness=0,
+            color=Color.BLACK,
+            direction=0,
+        )
+    )
+    assert window.selected_color is Color.BLUE
+    assert window.color_buttons[Color.BLUE].isChecked()
+    assert window.selected_color_label.text() == "Lighting off"
+    assert window.brightness_slider.value() == 0
 
 
 def test_worker_completes_and_reenables_actions(application, window):

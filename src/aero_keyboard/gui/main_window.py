@@ -31,7 +31,6 @@ from aero_keyboard.protocol import Color, Effect, EffectState
 from .worker import DeviceWorker
 
 COLOR_HEX = {
-    Color.BLACK: "#121417",
     Color.RED: "#ef4444",
     Color.GREEN: "#22c55e",
     Color.YELLOW: "#facc15",
@@ -329,10 +328,12 @@ class MainWindow(QMainWindow):
         self.feedback_label.setText("Settings synchronized with keyboard")
 
     def _load_state(self, state: EffectState) -> None:
-        if isinstance(state.color, Color) and state.color in COLOR_HEX:
+        if isinstance(state.color, Color) and state.color in self.color_buttons:
             self.selected_color = state.color
             self.color_buttons[state.color].setChecked(True)
             self.selected_color_label.setText(f"{state.color.name.title()} selected")
+        elif state.color is Color.BLACK and state.brightness == 0:
+            self.selected_color_label.setText("Lighting off")
         self.brightness_slider.setValue(max(0, min(100, state.brightness)))
 
     def apply_lighting(self) -> None:
