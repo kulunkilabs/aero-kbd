@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 from collections.abc import Sequence
 
-from PySide6.QtCore import QCoreApplication, Qt
+from PySide6.QtCore import QCoreApplication, QStandardPaths, Qt
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
@@ -17,7 +17,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     QCoreApplication.setApplicationName("Aero Keyboard Control")
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
     application = QApplication(list(argv) if argv is not None else sys.argv)
-    application.setDesktopFileName("io.github.aero_keyboard_control")
+    desktop_file = "io.github.aero_keyboard_control.desktop"
+    if QStandardPaths.locate(QStandardPaths.ApplicationsLocation, desktop_file):
+        application.setDesktopFileName("io.github.aero_keyboard_control")
     application.setWindowIcon(QIcon.fromTheme("input-keyboard"))
     window = MainWindow()
     window.show()

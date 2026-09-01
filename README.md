@@ -56,8 +56,8 @@ interface:
 .venv/bin/aero-kbd-gui
 ```
 
-The first GUI milestone includes live device/firmware status, a one-zone
-keyboard preview, the validated color palette, brightness, Apply, and Turn off.
+The first GUI milestone includes live device/firmware status, large visual
+color controls, brightness, Apply, and Turn off.
 Only the hardware-validated static effect is currently shown. The normal window
 works on KDE, GNOME, and Hyprland without requiring a tray extension.
 

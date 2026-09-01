@@ -6,9 +6,10 @@ import pytest
 
 pytest.importorskip("PySide6")
 
+from PySide6.QtCore import QEventLoop, QTimer
 from PySide6.QtWidgets import QApplication
 
-from aero_keyboard.gui.main_window import COLOR_HEX, MainWindow
+from aero_keyboard.gui.main_window import MainWindow
 from aero_keyboard.protocol import Color, Effect, EffectState
 
 
@@ -36,9 +37,8 @@ def test_color_and_brightness_update_preview(window):
     window.color_buttons[Color.BLUE].click()
     window.brightness_slider.setValue(40)
     assert window.selected_color is Color.BLUE
+    assert window.selected_color_label.text() == "Blue selected"
     assert window.brightness_value.text() == "40%"
-    assert window.preview._color.name() == COLOR_HEX[Color.BLUE]
-    assert window.preview._brightness == 40
 
 
 def test_hardware_state_updates_controls(window):
@@ -54,6 +54,20 @@ def test_hardware_state_updates_controls(window):
     assert window.selected_color is Color.PURPLE
     assert window.color_buttons[Color.PURPLE].isChecked()
     assert window.brightness_slider.value() == 25
+
+
+def test_worker_completes_and_reenables_actions(application, window):
+    results = []
+    window._run(lambda: "done", results.append, "Working…")
+    loop = QEventLoop()
+    QTimer.singleShot(500, loop.quit)
+    window.thread_pool.waitForDone(400)
+    application.processEvents()
+    QTimer.singleShot(0, loop.quit)
+    loop.exec()
+    assert results == ["done"]
+    assert not window._busy
+    assert window.apply_button.isEnabled()
 
 
 def test_window_renders_offscreen(application, window, tmp_path):

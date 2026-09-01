@@ -28,7 +28,6 @@ from aero_keyboard.device import KeyboardDevice
 from aero_keyboard.discovery import find_control_interface
 from aero_keyboard.protocol import Color, Effect, EffectState
 
-from .widgets import KeyboardPreview
 from .worker import DeviceWorker
 
 COLOR_HEX = {
@@ -47,9 +46,10 @@ class MainWindow(QMainWindow):
     def __init__(self, *, auto_refresh: bool = True) -> None:
         super().__init__()
         self.setWindowTitle("Aero Keyboard Control")
-        self.setMinimumSize(820, 600)
-        self.resize(960, 680)
+        self.setMinimumSize(720, 440)
+        self.resize(880, 540)
         self.thread_pool = QThreadPool.globalInstance()
+        self._workers: set[DeviceWorker] = set()
         self.selected_color = Color.WHITE
         self._busy = False
 
@@ -114,18 +114,11 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(16)
 
-        preview_card, preview_layout = self._card()
-        preview_heading = QLabel("Keyboard preview")
-        preview_heading.setObjectName("sectionTitle")
-        preview_layout.addWidget(preview_heading)
-        self.preview = KeyboardPreview()
-        preview_layout.addWidget(self.preview)
-        layout.addWidget(preview_card)
-
         controls_card, controls = self._card()
         controls_heading = QLabel("Lighting")
         controls_heading.setObjectName("sectionTitle")
         controls.addWidget(controls_heading)
+        controls.addWidget(QLabel("Choose a single color for the entire keyboard"))
 
         effect_row = QHBoxLayout()
         effect_row.addWidget(QLabel("Effect"))
@@ -136,21 +129,27 @@ class MainWindow(QMainWindow):
         effect_row.addWidget(self.effect_combo)
         controls.addLayout(effect_row)
 
-        controls.addWidget(QLabel("Color"))
+        color_header = QHBoxLayout()
+        color_header.addWidget(QLabel("Color"))
+        color_header.addStretch()
+        self.selected_color_label = QLabel("White selected")
+        self.selected_color_label.setObjectName("muted")
+        color_header.addWidget(self.selected_color_label)
+        controls.addLayout(color_header)
         swatches = QHBoxLayout()
-        swatches.setSpacing(10)
+        swatches.setSpacing(12)
         self.color_group = QButtonGroup(self)
         self.color_group.setExclusive(True)
         self.color_buttons: dict[Color, QToolButton] = {}
         for color, value in COLOR_HEX.items():
             button = QToolButton()
             button.setCheckable(True)
-            button.setFixedSize(38, 38)
+            button.setFixedSize(56, 56)
             button.setAccessibleName(color.name.title())
             button.setToolTip(color.name.title())
             button.setStyleSheet(
-                f"QToolButton {{ background: {value}; border: 2px solid transparent; "
-                "border-radius: 19px; } QToolButton:checked { border-color: #4f8cff; }"
+                f"QToolButton {{ background: {value}; border: 2px solid #737b87; "
+                "border-radius: 14px; } QToolButton:checked { border: 4px solid #4f8cff; }"
             )
             button.clicked.connect(lambda checked=False, selected=color: self._select_color(selected))
             self.color_group.addButton(button, color.value)
@@ -275,11 +274,10 @@ class MainWindow(QMainWindow):
 
     def _select_color(self, color: Color) -> None:
         self.selected_color = color
-        self.preview.set_lighting(COLOR_HEX[color], self.brightness_slider.value())
+        self.selected_color_label.setText(f"{color.name.title()} selected")
 
     def _brightness_changed(self, value: int) -> None:
         self.brightness_value.setText(f"{value}%")
-        self.preview.set_lighting(COLOR_HEX[self.selected_color], value)
 
     def _set_busy(self, busy: bool, message: str | None = None) -> None:
         self._busy = busy
@@ -295,7 +293,13 @@ class MainWindow(QMainWindow):
         worker = DeviceWorker(operation)
         worker.signals.succeeded.connect(on_success)
         worker.signals.failed.connect(self._operation_failed)
-        worker.signals.finished.connect(lambda: self._set_busy(False))
+        self._workers.add(worker)
+
+        def finished() -> None:
+            self._set_busy(False)
+            self._workers.discard(worker)
+
+        worker.signals.finished.connect(finished)
         self.thread_pool.start(worker)
 
     def refresh_device(self) -> None:
@@ -328,8 +332,8 @@ class MainWindow(QMainWindow):
         if isinstance(state.color, Color) and state.color in COLOR_HEX:
             self.selected_color = state.color
             self.color_buttons[state.color].setChecked(True)
+            self.selected_color_label.setText(f"{state.color.name.title()} selected")
         self.brightness_slider.setValue(max(0, min(100, state.brightness)))
-        self.preview.set_lighting(COLOR_HEX[self.selected_color], self.brightness_slider.value())
 
     def apply_lighting(self) -> None:
         color = self.selected_color
