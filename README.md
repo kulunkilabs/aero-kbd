@@ -46,6 +46,21 @@ aero-kbd set static white --brightness 50
 aero-kbd off
 ```
 
+## Desktop application
+
+Install the optional Qt dependency and launch the native Wayland-compatible
+interface:
+
+```bash
+.venv/bin/pip install -e '.[gui,test]'
+.venv/bin/aero-kbd-gui
+```
+
+The first GUI milestone includes live device/firmware status, a one-zone
+keyboard preview, the validated color palette, brightness, Apply, and Turn off.
+Only the hardware-validated static effect is currently shown. The normal window
+works on KDE, GNOME, and Hyprland without requiring a tray extension.
+
 ## Design goals
 
 - A dependency-light hardware library using Linux `hidraw`

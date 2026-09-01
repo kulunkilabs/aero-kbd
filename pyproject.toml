@@ -25,6 +25,9 @@ test = ["pytest>=8", "pytest-cov>=5"]
 [project.scripts]
 aero-kbd = "aero_keyboard.cli:main"
 
+[project.gui-scripts]
+aero-kbd-gui = "aero_keyboard.gui.app:main"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/aero_keyboard"]
 

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Aero Keyboard Control
+Comment=Control the RGB keyboard in supported GIGABYTE Aero laptops
+Exec=aero-kbd-gui
+Icon=input-keyboard
+Terminal=false
+Categories=Settings;HardwareSettings;
+Keywords=keyboard;RGB;lighting;GIGABYTE;Aero;
+StartupNotify=true
