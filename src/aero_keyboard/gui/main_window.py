@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, QThreadPool, QTimer
-from PySide6.QtGui import QColor, QFont
+from PySide6.QtGui import QCloseEvent, QColor, QFont
 from PySide6.QtWidgets import (
+    QApplication,
     QButtonGroup,
     QComboBox,
     QFrame,
@@ -13,7 +14,6 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMainWindow,
-    QMessageBox,
     QPushButton,
     QScrollArea,
     QSlider,
@@ -78,6 +78,7 @@ class MainWindow(QMainWindow):
         self.connection_label.setObjectName("connection")
         header.addWidget(self.connection_label)
         root.addLayout(header)
+        root.addWidget(self._error_banner())
 
         body = QHBoxLayout()
         body.setSpacing(18)
@@ -98,6 +99,28 @@ class MainWindow(QMainWindow):
         root.addLayout(body, 1)
 
         self.setCentralWidget(central)
+
+    def _error_banner(self) -> QFrame:
+        """Build the hidden inline banner that replaces modal failure dialogs."""
+        self.error_banner = QFrame()
+        self.error_banner.setObjectName("errorBanner")
+        layout = QHBoxLayout(self.error_banner)
+        layout.setContentsMargins(14, 10, 8, 10)
+        layout.setSpacing(10)
+        self.error_message = QLabel()
+        self.error_message.setObjectName("errorMessage")
+        self.error_message.setWordWrap(True)
+        self.error_message.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        layout.addWidget(self.error_message, 1)
+        dismiss = QToolButton()
+        dismiss.setObjectName("bannerDismiss")
+        dismiss.setText("\u2715")
+        dismiss.setToolTip("Dismiss")
+        dismiss.setAccessibleName("Dismiss message")
+        dismiss.clicked.connect(self.error_banner.hide)
+        layout.addWidget(dismiss, 0, Qt.AlignTop)
+        self.error_banner.hide()
+        return self.error_banner
 
     def _card(self) -> tuple[QFrame, QVBoxLayout]:
         frame = QFrame()
@@ -146,8 +169,9 @@ class MainWindow(QMainWindow):
             button.setFixedSize(56, 56)
             button.setAccessibleName(color.name.title())
             button.setToolTip(color.name.title())
+            outline = QColor(value).darker(135).name()
             button.setStyleSheet(
-                f"QToolButton {{ background: {value}; border: 2px solid #737b87; "
+                f"QToolButton {{ background: {value}; border: 2px solid {outline}; "
                 "border-radius: 14px; } QToolButton:checked { border: 4px solid #4f8cff; }"
             )
             button.clicked.connect(lambda checked=False, selected=color: self._select_color(selected))
@@ -208,9 +232,9 @@ class MainWindow(QMainWindow):
         self.device_details.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.device_details.setWordWrap(True)
         content.addWidget(self.device_details)
-        refresh = QPushButton("Refresh")
-        refresh.clicked.connect(self.refresh_device)
-        content.addWidget(refresh, 0, Qt.AlignLeft)
+        self.refresh_button = QPushButton("Refresh")
+        self.refresh_button.clicked.connect(self.refresh_device)
+        content.addWidget(self.refresh_button, 0, Qt.AlignLeft)
         layout.addWidget(card)
         layout.addStretch()
         return page
@@ -241,8 +265,10 @@ class MainWindow(QMainWindow):
         card = window.lighter(106) if window.lightness() < 128 else window.darker(103)
         border = palette.mid().color()
         text = palette.text().color()
-        muted = text
+        muted = QColor(text)
         muted.setAlpha(160)
+        dark = window.lightness() < 128
+        error_text = "#fca5a5" if dark else "#b91c1c"
         self.setStyleSheet(
             f"""
             QMainWindow, QWidget#central {{ background: {window.name()}; color: {text.name()}; }}
@@ -260,7 +286,11 @@ class MainWindow(QMainWindow):
             QPushButton {{ padding: 9px 16px; border: 1px solid {border.name()}; border-radius: 8px; }}
             QPushButton#primaryButton {{ background: #4f8cff; color: white; border-color: #4f8cff; font-weight: 600; }}
             QPushButton#secondaryButton {{ background: transparent; }}
-            QPushButton:disabled {{ opacity: 0.45; }}
+            QPushButton:disabled {{ color: {muted.name(QColor.HexArgb)}; background: transparent; border-color: {border.name()}; }}
+            QPushButton#primaryButton:disabled {{ background: #804f8cff; border-color: #00000000; color: #b3ffffff; }}
+            QFrame#errorBanner {{ background: #1aef4444; border: 1px solid #59ef4444; border-radius: 12px; }}
+            QLabel#errorMessage {{ color: {error_text}; }}
+            QToolButton#bannerDismiss {{ border: none; background: transparent; color: {error_text}; font-size: 15px; padding: 0 6px; }}
             QSlider::groove:horizontal {{ height: 6px; background: {border.name()}; border-radius: 3px; }}
             QSlider::sub-page:horizontal {{ background: #4f8cff; border-radius: 3px; }}
             QSlider::handle:horizontal {{ background: #4f8cff; width: 18px; margin: -6px 0; border-radius: 9px; }}
@@ -279,15 +309,21 @@ class MainWindow(QMainWindow):
         self.brightness_value.setText(f"{value}%")
 
     def _set_busy(self, busy: bool, message: str | None = None) -> None:
+        if busy != self._busy:
+            if busy:
+                QApplication.setOverrideCursor(Qt.BusyCursor)
+            else:
+                QApplication.restoreOverrideCursor()
         self._busy = busy
-        self.apply_button.setDisabled(busy)
-        self.off_button.setDisabled(busy)
+        for button in (self.apply_button, self.off_button, self.refresh_button):
+            button.setDisabled(busy)
         if message:
             self.feedback_label.setText(message)
 
     def _run(self, operation, on_success, message: str) -> None:
         if self._busy:
             return
+        self.error_banner.hide()
         self._set_busy(True, message)
         worker = DeviceWorker(operation)
         worker.signals.succeeded.connect(on_success)
@@ -367,4 +403,17 @@ class MainWindow(QMainWindow):
         self.connection_label.setText("●  Keyboard unavailable")
         self.connection_label.setStyleSheet("color: #ef4444;")
         self.feedback_label.setText(message)
-        QMessageBox.warning(self, "Keyboard operation failed", message)
+        self.device_details.setText(f"Keyboard is not available.\n\n{message}")
+        self.error_message.setText(message)
+        self.error_banner.show()
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        """Detach in-flight workers before their signals can reach a dead window."""
+        for worker in self._workers:
+            worker.signals.succeeded.disconnect()
+            worker.signals.failed.disconnect()
+            worker.signals.finished.disconnect()
+        self._workers.clear()
+        self._set_busy(False)
+        self.thread_pool.waitForDone(2000)
+        super().closeEvent(event)

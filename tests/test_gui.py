@@ -95,3 +95,36 @@ def test_window_renders_offscreen(application, window, tmp_path):
     output = tmp_path / "gui.png"
     assert window.grab().save(str(output))
     assert output.stat().st_size > 10_000
+
+
+def test_busy_state_disables_every_action(window):
+    window._set_busy(True, "Working…")
+    assert not window.apply_button.isEnabled()
+    assert not window.off_button.isEnabled()
+    assert not window.refresh_button.isEnabled()
+    window._set_busy(False)
+    assert window.refresh_button.isEnabled()
+
+
+def test_disabled_buttons_are_visibly_dimmed(application, window):
+    window.show()
+    application.processEvents()
+    enabled = window.apply_button.grab().toImage()
+    window._set_busy(True, "Working…")
+    application.processEvents()
+    assert window.apply_button.grab().toImage() != enabled
+
+
+def test_failures_report_inline_and_correct_the_device_page(window):
+    window._operation_failed("permission denied for /dev/hidraw3")
+    assert not window.error_banner.isHidden()
+    assert "permission denied" in window.error_message.text()
+    assert "permission denied" in window.device_details.text()
+    assert "Detecting" not in window.device_details.text()
+    assert "unavailable" in window.connection_label.text()
+
+
+def test_a_new_attempt_clears_the_previous_failure(window):
+    window._operation_failed("boom")
+    window._run(lambda: "done", lambda result: None, "Retrying…")
+    assert window.error_banner.isHidden()
