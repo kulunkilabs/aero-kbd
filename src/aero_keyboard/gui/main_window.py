@@ -30,6 +30,10 @@ from aero_keyboard.protocol import Color, Effect, EffectState
 
 from .worker import DeviceWorker
 
+# Coalesce a drag or a burst of clicks into one write instead of one per step.
+LIVE_APPLY_DELAY_MS = 120
+DEFAULT_BRIGHTNESS = 25
+
 COLOR_HEX = {
     Color.RED: "#ef4444",
     Color.GREEN: "#22c55e",
@@ -51,6 +55,14 @@ class MainWindow(QMainWindow):
         self._workers: set[DeviceWorker] = set()
         self.selected_color = Color.WHITE
         self._busy = False
+        self._loading = False
+        self._apply_pending = False
+        self._device_state: EffectState | None = None
+        self._last_visible_brightness = DEFAULT_BRIGHTNESS
+        self._apply_timer = QTimer(self)
+        self._apply_timer.setSingleShot(True)
+        self._apply_timer.setInterval(LIVE_APPLY_DELAY_MS)
+        self._apply_timer.timeout.connect(self._apply_now)
 
         self._build_ui()
         self._apply_theme()
@@ -99,6 +111,10 @@ class MainWindow(QMainWindow):
         root.addLayout(body, 1)
 
         self.setCentralWidget(central)
+
+        self.status_bar = self.statusBar()
+        self.status_bar.setSizeGripEnabled(False)
+        self._set_status("Ready")
 
     def _error_banner(self) -> QFrame:
         """Build the hidden inline banner that replaces modal failure dialogs."""
@@ -185,13 +201,13 @@ class MainWindow(QMainWindow):
         brightness_header = QHBoxLayout()
         brightness_header.addWidget(QLabel("Brightness"))
         brightness_header.addStretch()
-        self.brightness_value = QLabel("25%")
+        self.brightness_value = QLabel(f"{DEFAULT_BRIGHTNESS}%")
         self.brightness_value.setObjectName("muted")
         brightness_header.addWidget(self.brightness_value)
         controls.addLayout(brightness_header)
         self.brightness_slider = QSlider(Qt.Horizontal)
         self.brightness_slider.setRange(0, 100)
-        self.brightness_slider.setValue(25)
+        self.brightness_slider.setValue(DEFAULT_BRIGHTNESS)
         self.brightness_slider.setObjectName("brightnessSlider")
         self.brightness_slider.valueChanged.connect(self._brightness_changed)
         controls.addWidget(self.brightness_slider)
@@ -204,13 +220,10 @@ class MainWindow(QMainWindow):
         actions.addWidget(self.off_button)
         self.apply_button = QPushButton("Apply")
         self.apply_button.setObjectName("primaryButton")
+        self.apply_button.setToolTip("Resend the current settings to the keyboard")
         self.apply_button.clicked.connect(self.apply_lighting)
         actions.addWidget(self.apply_button)
         controls.addLayout(actions)
-
-        self.feedback_label = QLabel("Ready")
-        self.feedback_label.setObjectName("muted")
-        controls.addWidget(self.feedback_label)
         layout.addWidget(controls_card)
         layout.addStretch()
 
@@ -295,6 +308,8 @@ class MainWindow(QMainWindow):
             QSlider::sub-page:horizontal {{ background: #4f8cff; border-radius: 3px; }}
             QSlider::handle:horizontal {{ background: #4f8cff; width: 18px; margin: -6px 0; border-radius: 9px; }}
             QStackedWidget, QScrollArea, QScrollArea > QWidget > QWidget {{ background: transparent; }}
+            QStatusBar {{ background: transparent; color: {muted.name(QColor.HexArgb)}; padding: 0 14px; }}
+            QStatusBar::item {{ border: none; }}
             """
         )
         title_font = QFont(self.font())
@@ -303,10 +318,57 @@ class MainWindow(QMainWindow):
 
     def _select_color(self, color: Color) -> None:
         self.selected_color = color
-        self.selected_color_label.setText(f"{color.name.title()} selected")
+        if self.brightness_slider.value() == 0:
+            # Choosing a color while the lighting is off means turn it back on.
+            self.brightness_slider.setValue(self._last_visible_brightness)
+        self._describe_selection()
+        self._schedule_apply()
 
     def _brightness_changed(self, value: int) -> None:
         self.brightness_value.setText(f"{value}%")
+        if value > 0:
+            self._last_visible_brightness = value
+        if self._loading:
+            return
+        self._describe_selection()
+        self._schedule_apply()
+
+    def _describe_selection(self) -> None:
+        if self.brightness_slider.value() == 0:
+            self.selected_color_label.setText("Lighting off")
+        else:
+            self.selected_color_label.setText(f"{self.selected_color.name.title()} selected")
+
+    def _schedule_apply(self) -> None:
+        """Defer the write so a slider drag becomes one report, not a hundred."""
+        self._apply_timer.start()
+        self._update_apply_button()
+
+    def _apply_now(self) -> None:
+        if self._busy:
+            self._apply_pending = True
+            return
+        self.apply_lighting()
+
+    def _requested(self) -> tuple[int, int]:
+        brightness = self.brightness_slider.value()
+        color = Color.BLACK if brightness == 0 else self.selected_color
+        return int(color), brightness
+
+    def _confirmed(self) -> tuple[int, int] | None:
+        state = self._device_state
+        if state is None:
+            return None
+        color = Color.BLACK if state.brightness == 0 else state.color
+        return int(color), state.brightness
+
+    def _update_apply_button(self) -> None:
+        """Offer Apply only as a fallback: when a live write has not landed."""
+        settled = not (self._busy or self._apply_pending or self._apply_timer.isActive())
+        self.apply_button.setEnabled(settled and self._requested() != self._confirmed())
+
+    def _set_status(self, message: str) -> None:
+        self.status_bar.showMessage(message)
 
     def _set_busy(self, busy: bool, message: str | None = None) -> None:
         if busy != self._busy:
@@ -315,10 +377,11 @@ class MainWindow(QMainWindow):
             else:
                 QApplication.restoreOverrideCursor()
         self._busy = busy
-        for button in (self.apply_button, self.off_button, self.refresh_button):
-            button.setDisabled(busy)
+        self.off_button.setDisabled(busy)
+        self.refresh_button.setDisabled(busy)
+        self._update_apply_button()
         if message:
-            self.feedback_label.setText(message)
+            self._set_status(message)
 
     def _run(self, operation, on_success, message: str) -> None:
         if self._busy:
@@ -333,6 +396,9 @@ class MainWindow(QMainWindow):
         def finished() -> None:
             self._set_busy(False)
             self._workers.discard(worker)
+            if self._apply_pending:
+                self._apply_pending = False
+                self._schedule_apply()
 
         worker.signals.finished.connect(finished)
         self.thread_pool.start(worker)
@@ -361,18 +427,25 @@ class MainWindow(QMainWindow):
             f"Firmware: {firmware}"
         )
         self._load_state(state)
-        self.feedback_label.setText("Settings synchronized with keyboard")
+        self._set_status("Settings synchronized with keyboard")
 
     def _load_state(self, state: EffectState) -> None:
-        if isinstance(state.color, Color) and state.color in self.color_buttons:
-            self.selected_color = state.color
-            self.color_buttons[state.color].setChecked(True)
-            self.selected_color_label.setText(f"{state.color.name.title()} selected")
-        elif state.color is Color.BLACK and state.brightness == 0:
-            self.selected_color_label.setText("Lighting off")
-        self.brightness_slider.setValue(max(0, min(100, state.brightness)))
+        """Mirror confirmed hardware state without re-triggering a live write."""
+        self._loading = True
+        try:
+            if isinstance(state.color, Color) and state.color in self.color_buttons:
+                self.selected_color = state.color
+                self.color_buttons[state.color].setChecked(True)
+            self.brightness_slider.setValue(max(0, min(100, state.brightness)))
+            self._describe_selection()
+        finally:
+            self._loading = False
+        self._device_state = state
+        self._update_apply_button()
 
     def apply_lighting(self) -> None:
+        self._apply_timer.stop()
+        self._apply_pending = False
         color = self.selected_color
         brightness = self.brightness_slider.value()
 
@@ -385,9 +458,12 @@ class MainWindow(QMainWindow):
 
     def _lighting_applied(self, state: EffectState) -> None:
         self._load_state(state)
-        self.feedback_label.setText("Lighting applied and verified")
+        self._set_status("Lighting applied and verified")
 
     def turn_off(self) -> None:
+        self._apply_timer.stop()
+        self._apply_pending = False
+
         def off():
             with KeyboardDevice() as keyboard:
                 keyboard.set_static(Color.BLACK, brightness=0)
@@ -397,18 +473,25 @@ class MainWindow(QMainWindow):
 
     def _lighting_off(self, state: EffectState) -> None:
         self._load_state(state)
-        self.feedback_label.setText("Keyboard lighting is off")
+        self._set_status("Keyboard lighting is off")
 
     def _operation_failed(self, message: str) -> None:
         self.connection_label.setText("●  Keyboard unavailable")
         self.connection_label.setStyleSheet("color: #ef4444;")
-        self.feedback_label.setText(message)
+        self._set_status(message)
+        self._apply_timer.stop()
+        self._apply_pending = False
+        # The device did not answer, so the last read no longer describes it.
+        self._device_state = None
         self.device_details.setText(f"Keyboard is not available.\n\n{message}")
         self.error_message.setText(message)
         self.error_banner.show()
+        self._update_apply_button()
 
     def closeEvent(self, event: QCloseEvent) -> None:
         """Detach in-flight workers before their signals can reach a dead window."""
+        self._apply_timer.stop()
+        self._apply_pending = False
         for worker in self._workers:
             worker.signals.succeeded.disconnect()
             worker.signals.failed.disconnect()

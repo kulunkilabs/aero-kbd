@@ -57,7 +57,10 @@ interface:
 ```
 
 The first GUI milestone includes live device/firmware status, large visual
-color controls, brightness, Apply, and Turn off.
+color controls, brightness, and Turn off. Color and brightness changes are
+written to the keyboard as you make them, and a slider drag is coalesced into
+a single report. Apply remains as a fallback and is offered only when a change
+has not reached the hardware.
 Only the hardware-validated static effect is currently shown. The normal window
 works on KDE, GNOME, and Hyprland without requiring a tray extension.
 

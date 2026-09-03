@@ -128,3 +128,72 @@ def test_a_new_attempt_clears_the_previous_failure(window):
     window._operation_failed("boom")
     window._run(lambda: "done", lambda result: None, "Retrying…")
     assert window.error_banner.isHidden()
+
+
+def test_changing_a_control_schedules_a_live_write(window):
+    window.color_buttons[Color.GREEN].click()
+    assert window._apply_timer.isActive()
+    window._apply_timer.stop()
+    window.brightness_slider.setValue(70)
+    assert window._apply_timer.isActive()
+
+
+def test_a_slider_drag_coalesces_into_a_single_write(application, window):
+    writes = []
+    window.apply_lighting = lambda: writes.append(window.brightness_slider.value())
+    for value in range(30, 60):
+        window.brightness_slider.setValue(value)
+    loop = QEventLoop()
+    QTimer.singleShot(400, loop.quit)
+    loop.exec()
+    assert writes == [59]
+
+
+def test_choosing_a_color_while_off_turns_the_lighting_back_on(window):
+    window.brightness_slider.setValue(60)
+    window.brightness_slider.setValue(0)
+    assert window.selected_color_label.text() == "Lighting off"
+    window.color_buttons[Color.RED].click()
+    assert window.brightness_slider.value() == 60
+    assert window.selected_color_label.text() == "Red selected"
+
+
+def test_apply_is_offered_only_when_a_live_write_has_not_landed(window):
+    window.color_buttons[Color.YELLOW].click()
+    assert not window.apply_button.isEnabled(), "a scheduled write needs no fallback"
+    window._apply_timer.stop()
+    window._load_state(
+        EffectState(
+            effect=Effect.STATIC,
+            speed=3,
+            brightness=window.brightness_slider.value(),
+            color=Color.YELLOW,
+            direction=0,
+        )
+    )
+    assert not window.apply_button.isEnabled(), "hardware already matches the controls"
+    window._operation_failed("device went away")
+    assert window.apply_button.isEnabled(), "a failed write must stay retryable"
+
+
+def test_a_failed_write_is_not_retried_automatically(window):
+    window.color_buttons[Color.BLUE].click()
+    window._operation_failed("device went away")
+    assert not window._apply_timer.isActive()
+    assert not window._apply_pending
+
+
+def test_closing_cancels_a_queued_write(window):
+    window.color_buttons[Color.ORANGE].click()
+    window.close()
+    assert not window._apply_timer.isActive()
+
+
+def test_progress_and_results_reach_the_status_bar(window):
+    window._set_busy(True, "Applying lighting…")
+    assert window.status_bar.currentMessage() == "Applying lighting…"
+    window._set_busy(False)
+    window._lighting_off(
+        EffectState(effect=Effect.STATIC, speed=3, brightness=0, color=Color.BLACK, direction=0)
+    )
+    assert window.status_bar.currentMessage() == "Keyboard lighting is off"
