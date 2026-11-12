@@ -48,12 +48,35 @@ aero-kbd off
 
 ## Desktop application
 
+### One-click launcher (Arch, CachyOS, Omarchy)
+
+From a clone of this repository:
+
+```bash
+chmod +x scripts/install-app.sh
+./scripts/install-app.sh
+```
+
+That creates a private virtualenv, installs the GUI, copies a menu entry and icon
+under `~/.local`, and prompts for the udev rule when `sudo` is available. Then
+open **Aero Keyboard Control** from your application menu.
+
+To remove the user install: `./scripts/install-app.sh --uninstall`.
+
+System-wide package (optional):
+
+```bash
+cd packaging/arch && makepkg -si
+```
+
+### Development GUI
+
 Install the optional Qt dependency and launch the native Wayland-compatible
 interface:
 
 ```bash
 .venv/bin/pip install -e '.[gui,test]'
-.venv/bin/aero-kbd-gui
+aero-kbd-gui
 ```
 
 The first GUI milestone includes live device/firmware status, large visual

@@ -1,0 +1,32 @@
+# Build from the repository root:
+#   cd packaging/arch && makepkg -si
+#
+# Installs system-wide: /usr/bin/aero-kbd-gui, udev rule, desktop entry, icon.
+pkgname=aero-keyboard-control
+pkgver=0.0.1
+pkgrel=1
+pkgdesc="Linux RGB keyboard control for GIGABYTE Aero laptops"
+arch=('any')
+url="https://github.com/kulunki-bots/aero-keyboard-control"
+license=('MIT')
+depends=('python>=3.11' 'python-pyside6')
+makedepends=('python-build' 'python-installer' 'python-hatchling')
+options=('!strip')
+source=()
+
+package() {
+  local repo_root
+  repo_root=$(cd "$startdir/../.." && pwd)
+
+  cd "$repo_root"
+  python -m build --wheel --no-isolation --outdir "$srcdir/dist"
+  python -m installer --destdir="$pkgdir" --prefix=/usr "$srcdir/dist"/*.whl
+
+  install -Dm644 "$repo_root/packaging/desktop/io.github.aero_keyboard_control.desktop" \
+    "$pkgdir/usr/share/applications/io.github.aero_keyboard_control.desktop"
+  install -Dm644 "$repo_root/packaging/icon/io.github.aero_keyboard_control.svg" \
+    "$pkgdir/usr/share/icons/hicolor/scalable/apps/io.github.aero_keyboard_control.svg"
+  install -Dm644 "$repo_root/packaging/udev/70-aero-keyboard.rules" \
+    "$pkgdir/usr/lib/udev/rules.d/70-aero-keyboard.rules"
+  install -Dm644 "$repo_root/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

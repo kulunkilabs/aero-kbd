@@ -20,7 +20,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     desktop_file = "io.github.aero_keyboard_control.desktop"
     if QStandardPaths.locate(QStandardPaths.ApplicationsLocation, desktop_file):
         application.setDesktopFileName("io.github.aero_keyboard_control")
-    application.setWindowIcon(QIcon.fromTheme("input-keyboard"))
+    application.setWindowIcon(
+        QIcon.fromTheme("io.github.aero_keyboard_control", QIcon.fromTheme("input-keyboard"))
+    )
     window = MainWindow()
     window.show()
     return application.exec()
