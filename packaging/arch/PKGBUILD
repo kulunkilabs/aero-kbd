@@ -13,7 +13,7 @@ depends=('python' 'pyside6')
 makedepends=('python-build' 'python-installer' 'python-hatchling')
 checkdepends=('python-pytest')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('5d52e7a3515948b378751ed7c7b1b467774916685e133bf1b5a527a63971e8f5')
 
 build() {
   cd "$pkgname-$pkgver"
