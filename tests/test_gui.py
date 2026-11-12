@@ -9,8 +9,81 @@ pytest.importorskip("PySide6")
 from PySide6.QtCore import QEventLoop, QTimer
 from PySide6.QtWidgets import QApplication
 
+from aero_keyboard.discovery import HidInterface
+from aero_keyboard.gui import main_window
 from aero_keyboard.gui.main_window import MainWindow
 from aero_keyboard.protocol import Color, Effect, EffectState
+
+
+def _interface() -> HidInterface:
+    return HidInterface(
+        device_path="/dev/hidraw-test",
+        sysfs_path="/sys/test",
+        vendor_id=0x0414,
+        product_id=0x8104,
+        interface_number=3,
+        name="GIGABYTE USB-HID Keyboard",
+        physical_path="usb-test/input3",
+        usage_page=0xFF01,
+        is_control_interface=True,
+        device_node_present=True,
+        readable=True,
+        writable=True,
+    )
+
+
+class _FakeKeyboardDevice:
+    """Stand-in for KeyboardDevice that records calls instead of touching hidraw."""
+
+    instances: list["_FakeKeyboardDevice"] = []
+
+    def __init__(self, interface=None) -> None:
+        self.interface = interface
+        self.open_calls = 0
+        self.close_calls = 0
+        self.writes: list[tuple[Color, int]] = []
+        self.effect_state_calls = 0
+        self.fail_next_write = False
+        _FakeKeyboardDevice.instances.append(self)
+
+    def open(self) -> None:
+        self.open_calls += 1
+
+    def close(self) -> None:
+        self.close_calls += 1
+
+    def set_static(self, color, *, brightness, speed=3) -> None:
+        if self.fail_next_write:
+            raise RuntimeError("simulated device failure")
+        self.writes.append((color, brightness))
+
+    def effect_state(self) -> EffectState:
+        self.effect_state_calls += 1
+        # A sane default lets refresh_device be tested even before any write happens.
+        color, brightness = self.writes[-1] if self.writes else (Color.WHITE, main_window.DEFAULT_BRIGHTNESS)
+        return EffectState(effect=Effect.STATIC, speed=3, brightness=brightness, color=color, direction=0)
+
+    def firmware_version(self) -> str:
+        return "1.0.0"
+
+
+@pytest.fixture(autouse=True)
+def _hardware_free(monkeypatch):
+    """No test in this module may open a real hidraw node; replace the device
+    class MainWindow constructs with a fake one for every test."""
+    _FakeKeyboardDevice.instances.clear()
+    monkeypatch.setattr(main_window, "KeyboardDevice", _FakeKeyboardDevice)
+
+
+def _wait_for_worker(application, window) -> None:
+    """Block until an in-flight `_run` worker finishes and its queued signals are
+    delivered on this thread (mirrors test_worker_completes_and_reenables_actions)."""
+    loop = QEventLoop()
+    QTimer.singleShot(500, loop.quit)
+    window.thread_pool.waitForDone(400)
+    application.processEvents()
+    QTimer.singleShot(0, loop.quit)
+    loop.exec()
 
 
 @pytest.fixture(scope="module")
@@ -130,11 +203,17 @@ def test_a_new_attempt_clears_the_previous_failure(window):
     assert window.error_banner.isHidden()
 
 
-def test_changing_a_control_schedules_a_live_write(window):
+def test_a_swatch_click_applies_immediately_while_a_brightness_change_still_debounces(window):
+    calls = []
+    window.apply_lighting = lambda: calls.append("apply")
+
     window.color_buttons[Color.GREEN].click()
-    assert window._apply_timer.isActive()
-    window._apply_timer.stop()
+    assert calls == ["apply"], "a swatch click is a settled gesture, not a drag to coalesce"
+    assert not window._apply_timer.isActive()
+
+    calls.clear()
     window.brightness_slider.setValue(70)
+    assert calls == [], "a brightness drag should still coalesce via the debounce timer"
     assert window._apply_timer.isActive()
 
 
@@ -158,10 +237,10 @@ def test_choosing_a_color_while_off_turns_the_lighting_back_on(window):
     assert window.selected_color_label.text() == "Red selected"
 
 
-def test_apply_is_offered_only_when_a_live_write_has_not_landed(window):
+def test_apply_is_offered_only_when_a_live_write_has_not_landed(application, window):
     window.color_buttons[Color.YELLOW].click()
-    assert not window.apply_button.isEnabled(), "a scheduled write needs no fallback"
-    window._apply_timer.stop()
+    assert not window.apply_button.isEnabled(), "an in-flight write needs no fallback"
+    _wait_for_worker(application, window)
     window._load_state(
         EffectState(
             effect=Effect.STATIC,
@@ -176,15 +255,17 @@ def test_apply_is_offered_only_when_a_live_write_has_not_landed(window):
     assert window.apply_button.isEnabled(), "a failed write must stay retryable"
 
 
-def test_a_failed_write_is_not_retried_automatically(window):
+def test_a_failed_write_is_not_retried_automatically(application, window):
     window.color_buttons[Color.BLUE].click()
+    _wait_for_worker(application, window)
     window._operation_failed("device went away")
     assert not window._apply_timer.isActive()
     assert not window._apply_pending
 
 
 def test_closing_cancels_a_queued_write(window):
-    window.color_buttons[Color.ORANGE].click()
+    window.brightness_slider.setValue(70)
+    assert window._apply_timer.isActive()
     window.close()
     assert not window._apply_timer.isActive()
 
@@ -197,3 +278,176 @@ def test_progress_and_results_reach_the_status_bar(window):
         EffectState(effect=Effect.STATIC, speed=3, brightness=0, color=Color.BLACK, direction=0)
     )
     assert window.status_bar.currentMessage() == "Keyboard lighting is off"
+
+
+def test_the_device_handle_is_created_once_and_reused_across_operations(application, window):
+    window.apply_lighting()
+    _wait_for_worker(application, window)
+    window.turn_off()
+    _wait_for_worker(application, window)
+
+    assert len(_FakeKeyboardDevice.instances) == 1, "only one KeyboardDevice should ever be constructed"
+    device = _FakeKeyboardDevice.instances[0]
+    assert window._device is device
+    assert device.open_calls == 2, "each operation reuses the handle, but still calls the idempotent open()"
+    assert device.close_calls == 0, "a successful session never closes the handle between operations"
+
+
+def test_a_failed_operation_discards_the_device_handle(application, window):
+    window.apply_lighting()
+    _wait_for_worker(application, window)
+    device = window._device
+    assert device is not None
+
+    device.fail_next_write = True
+    window.apply_lighting()
+    _wait_for_worker(application, window)
+
+    assert window._device is None, "a stale handle must be dropped so the next attempt reopens cleanly"
+    assert device.close_calls == 1
+
+
+def test_a_write_queued_behind_a_busy_operation_applies_without_a_fresh_delay(application, window):
+    calls = []
+    window.apply_lighting = lambda: calls.append("apply")
+
+    window._run(lambda: "in flight", lambda result: None, "Working…")
+    assert window._busy
+    window._apply_pending = True  # a control changed while the write above was still in flight
+
+    _wait_for_worker(application, window)
+
+    assert calls == ["apply"], "the queued write must fire once the busy operation finishes"
+    assert not window._apply_timer.isActive(), "it must not wait out a fresh 120 ms debounce"
+    assert not window._apply_pending
+
+
+def test_a_control_change_while_a_write_is_in_flight_is_not_discarded(application, window):
+    """A write is a command, not a query: its readback must never yank a control
+    the user is still adjusting back to what the completed write actually sent."""
+    window.color_buttons[Color.BLUE].click()  # first write starts; busy=True
+    assert window._busy
+
+    window.brightness_slider.setValue(70)  # the user keeps adjusting while it is in flight
+    assert window._apply_timer.isActive()
+    window._apply_timer.stop()  # drive the debounce deterministically instead of racing the real 120 ms
+
+    _wait_for_worker(application, window)  # let the in-flight write land
+
+    assert window.brightness_slider.value() == 70, "a write landing mid-edit must not revert the user's control"
+
+    window._apply_now()  # what the debounce timer would otherwise have done
+    _wait_for_worker(application, window)
+
+    device = _FakeKeyboardDevice.instances[-1]
+    assert device.writes[-1] == (Color.BLUE, 70), "the user's value must be what ultimately reaches the device"
+
+
+def test_skips_the_readback_when_a_newer_write_is_already_queued(window):
+    # `_apply_pending` is normally flipped from a worker thread's perspective by a
+    # concurrent UI action, which a real thread-pool run can't observe deterministically.
+    # Capture apply_lighting()'s worker closure and drive it synchronously instead, so the
+    # flag's value at the check is pinned rather than raced.
+    captured = {}
+    window._run = lambda operation, on_success, message: captured.update(operation=operation, on_success=on_success)
+
+    window.color_buttons[Color.BLUE].click()
+    window._apply_pending = True  # a second control change is already queued behind this write
+
+    result = captured["operation"]()
+
+    assert result is None, "the readback must be skipped once a newer write is already queued"
+    device = _FakeKeyboardDevice.instances[-1]
+    assert len(device.writes) == 1, "the write itself must still go out"
+    assert device.effect_state_calls == 0, "the readback must be skipped once a newer write is already queued"
+
+    captured["on_success"](result)
+    assert window._device_state == EffectState(
+        effect=Effect.STATIC,
+        speed=3,
+        brightness=window.brightness_slider.value(),
+        color=Color.BLUE,
+        direction=0,
+    )
+
+
+def test_refresh_device_reuses_the_shared_handle(application, window, monkeypatch):
+    monkeypatch.setattr(main_window, "find_control_interface", lambda: _interface())
+
+    window.apply_lighting()
+    _wait_for_worker(application, window)
+    window.refresh_device()
+    _wait_for_worker(application, window)
+
+    assert len(_FakeKeyboardDevice.instances) == 1, "refresh_device must reuse the handle, not open a second one"
+    device = _FakeKeyboardDevice.instances[0]
+    assert device.open_calls == 2
+    assert "/dev/hidraw-test" in window.device_details.text()
+
+
+def test_the_power_button_turns_the_lighting_back_on_at_the_last_brightness(window):
+    calls = []
+    window.apply_lighting = lambda: calls.append(window.brightness_slider.value())
+    window.brightness_slider.setValue(60)
+    window.brightness_slider.setValue(0)
+    assert window.off_button.text() == "Turn on"
+
+    window.off_button.click()
+
+    assert window.brightness_slider.value() == 60
+    assert window.off_button.text() == "Turn off"
+    assert calls == [60], "turning back on is a settled gesture and must not wait for the debounce"
+    assert not window._apply_timer.isActive()
+
+
+def test_the_error_banner_offers_a_retry(application, window, monkeypatch):
+    monkeypatch.setattr(main_window, "find_control_interface", lambda: _interface())
+    window._operation_failed("boom")
+    assert not window.retry_button.isHidden()
+
+    window.retry_button.click()
+    _wait_for_worker(application, window)
+
+    assert window.error_banner.isHidden()
+    assert "connected" in window.connection_label.text()
+
+
+def test_device_details_can_be_copied_as_plain_text(application, window):
+    assert not window.copy_button.isEnabled(), "nothing to copy before the keyboard is read"
+    window._device_refreshed(
+        (_interface(), "1.0.0", EffectState(effect=Effect.STATIC, speed=3, brightness=25, color=Color.RED, direction=0))
+    )
+    window.copy_button.click()
+    copied = application.clipboard().text()
+    assert "Device: /dev/hidraw-test" in copied
+    assert "<" not in copied, "the clipboard gets plain text, not the table markup"
+    window._operation_failed("device went away")
+    assert not window.copy_button.isEnabled()
+
+
+def test_clicking_apply_walks_the_button_through_applying_and_applied(application, window):
+    window._operation_failed("device went away")  # the fallback Apply is only offered after a failed write
+    assert window.apply_button.isEnabled()
+
+    window.apply_button.click()
+    assert window.apply_button.text() == "Applying…"
+    _wait_for_worker(application, window)
+    assert window.apply_button.text() == "Applied \u2713"
+
+    window._apply_reset_timer.stop()  # drive the reset deterministically instead of waiting it out
+    window._reset_apply_button()
+    assert window.apply_button.text() == "Apply"
+
+
+def test_a_failed_apply_click_restores_the_button_label(application, window):
+    window._operation_failed("device went away")
+    window.apply_button.click()
+    assert window.apply_button.text() == "Applying…"
+    window._operation_failed("still gone")
+    assert window.apply_button.text() == "Apply"
+
+
+def test_a_live_write_does_not_change_the_apply_label(application, window):
+    window.color_buttons[Color.GREEN].click()
+    _wait_for_worker(application, window)
+    assert window.apply_button.text() == "Apply"
