@@ -17,17 +17,17 @@ sha256sums=('5d52e7a3515948b378751ed7c7b1b467774916685e133bf1b5a527a63971e8f5')
 
 build() {
   cd "$pkgname-$pkgver"
-  python -m build --wheel --no-isolation
+  /usr/bin/python -m build --wheel --no-isolation
 }
 
 check() {
   cd "$pkgname-$pkgver"
-  QT_QPA_PLATFORM=offscreen PYTHONPATH=src python -m pytest
+  QT_QPA_PLATFORM=offscreen PYTHONPATH=src /usr/bin/python -m pytest
 }
 
 package() {
   cd "$pkgname-$pkgver"
-  python -m installer --destdir="$pkgdir" dist/*.whl
+  /usr/bin/python -m installer --destdir="$pkgdir" dist/*.whl
 
   install -Dm644 packaging/desktop/io.github.aero_keyboard_control.desktop \
     "$pkgdir/usr/share/applications/io.github.aero_keyboard_control.desktop"
