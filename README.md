@@ -64,14 +64,21 @@ aero-kbd off
 
 ## Install
 
-### Arch, CachyOS, Omarchy and other Arch-based systems (AUR)
+### Arch, CachyOS, Omarchy and other Arch-based systems
+
+Build and install the package with `makepkg`:
 
 ```bash
-yay -S aero-kbd        # or: paru -S aero-kbd
+git clone https://github.com/kulunkilabs/aero-kbd.git
+cd aero-kbd/packaging/arch
+makepkg -si
 ```
 
-`aero-kbd-git` follows the development branch. Both install the
-GUI, the `aero-kbd` command, the menu entry, and the udev rule.
+This installs the GUI, the `aero-kbd` command, the menu entry, and the
+udev rule. `packaging/arch-git` builds the development branch instead.
+
+An AUR package (`aero-kbd`) is planned, but new AUR account registration
+is currently closed, so `yay -S aero-kbd` does not work yet.
 
 ### Any distribution: one-line installer
 
