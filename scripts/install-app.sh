@@ -24,7 +24,7 @@ script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 project_dir=$(dirname -- "$script_dir")
 
 data_home=${XDG_DATA_HOME:-"$HOME/.local/share"}
-state_dir="$data_home/aero-keyboard-control"
+state_dir="$data_home/aero-kbd"
 venv_dir="$state_dir/venv"
 desktop_id=io.github.aero_keyboard_control
 desktop_src="$project_dir/packaging/desktop/${desktop_id}.desktop"

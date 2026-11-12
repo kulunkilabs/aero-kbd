@@ -451,3 +451,14 @@ def test_a_live_write_does_not_change_the_apply_label(application, window):
     window.color_buttons[Color.GREEN].click()
     _wait_for_worker(application, window)
     assert window.apply_button.text() == "Apply"
+
+
+def test_the_about_page_shows_the_version_and_opens_project_links(window, monkeypatch):
+    opened = []
+    monkeypatch.setattr(main_window.QDesktopServices, "openUrl", lambda url: opened.append(url.toString()))
+    assert main_window.__version__ in window.version_label.text()
+
+    window.project_button.click()
+    window.issue_button.click()
+
+    assert opened == [main_window.PROJECT_URL, f"{main_window.PROJECT_URL}/issues"]

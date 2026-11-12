@@ -41,18 +41,18 @@ is the copy of record.
    makepkg -si
    ```
 
-3. Publish (first time: `git clone ssh://aur@aur.archlinux.org/aero-keyboard-control.git`):
+3. Publish (first time: `git clone ssh://aur@aur.archlinux.org/aero-kbd.git`):
 
    ```bash
-   cp PKGBUILD /path/to/aur/aero-keyboard-control/
-   cd /path/to/aur/aero-keyboard-control
+   cp PKGBUILD /path/to/aur/aero-kbd/
+   cd /path/to/aur/aero-kbd
    makepkg --printsrcinfo > .SRCINFO
    git add PKGBUILD .SRCINFO
    git commit -m "Update to 0.1.0b1"
    git push
    ```
 
-`packaging/arch-git/PKGBUILD` is the `aero-keyboard-control-git` package. It
+`packaging/arch-git/PKGBUILD` is the `aero-kbd-git` package. It
 follows `main`, so it only needs republishing when its dependencies or install
 steps change.
 

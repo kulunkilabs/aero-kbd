@@ -1,7 +1,7 @@
 #!/bin/sh
 # Download Aero Keyboard Control and install it for the current user:
 #
-#   curl -fsSL https://raw.githubusercontent.com/kulunkilabs/aero-keyboard-control/main/scripts/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/kulunkilabs/aero-kbd/main/scripts/install.sh | sh
 #
 # Options are passed on to install-app.sh, for example to remove the install:
 #
@@ -11,7 +11,7 @@
 # AERO_KBD_REPO picks a fork (owner/name).
 set -eu
 
-repo=${AERO_KBD_REPO:-kulunkilabs/aero-keyboard-control}
+repo=${AERO_KBD_REPO:-kulunkilabs/aero-kbd}
 ref=${AERO_KBD_REF:-}
 
 for tool in curl tar python3; do

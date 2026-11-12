@@ -1,4 +1,4 @@
-# Aero Keyboard Control
+# aero-kbd — Aero Keyboard Control
 
 Cross-distribution Linux control for the RGB keyboard in GIGABYTE Aero laptops.
 
@@ -54,27 +54,27 @@ aero-kbd off
 ### Arch, CachyOS, Omarchy and other Arch-based systems (AUR)
 
 ```bash
-yay -S aero-keyboard-control        # or: paru -S aero-keyboard-control
+yay -S aero-kbd        # or: paru -S aero-kbd
 ```
 
-`aero-keyboard-control-git` follows the development branch. Both install the
+`aero-kbd-git` follows the development branch. Both install the
 GUI, the `aero-kbd` command, the menu entry, and the udev rule.
 
 ### Any distribution: one-line installer
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/kulunkilabs/aero-keyboard-control/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/kulunkilabs/aero-kbd/main/scripts/install.sh | sh
 ```
 
 This needs `python3`, `curl` and `tar`. It downloads the newest release into a
-private virtualenv under `~/.local/share/aero-keyboard-control`, adds a menu
+private virtualenv under `~/.local/share/aero-kbd`, adds a menu
 entry and icon, and asks for `sudo` once to install the udev rule. Then open
 **Aero Keyboard Control** from your application menu.
 
 To remove it again:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/kulunkilabs/aero-keyboard-control/main/scripts/install.sh | sh -s -- --uninstall
+curl -fsSL https://raw.githubusercontent.com/kulunkilabs/aero-kbd/main/scripts/install.sh | sh -s -- --uninstall
 ```
 
 ### From a clone

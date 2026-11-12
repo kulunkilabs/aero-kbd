@@ -1,13 +1,13 @@
 # Maintainer: kulunkilabs
 #
 # Development package that follows the main branch.
-pkgname=aero-keyboard-control-git
-_pkgname=aero-keyboard-control
+pkgname=aero-kbd-git
+_pkgname=aero-kbd
 pkgver=0.1.0b1
 pkgrel=1
 pkgdesc="Linux RGB keyboard control for GIGABYTE Aero laptops (development version)"
 arch=('any')
-url="https://github.com/kulunkilabs/aero-keyboard-control"
+url="https://github.com/kulunkilabs/aero-kbd"
 license=('MIT')
 depends=('python' 'pyside6')
 makedepends=('git' 'python-build' 'python-installer' 'python-hatchling')

@@ -5,8 +5,8 @@ from __future__ import annotations
 from html import escape
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QSize, Qt, QTemporaryDir, QThreadPool, QTimer
-from PySide6.QtGui import QCloseEvent, QColor, QFont, QIcon
+from PySide6.QtCore import QEvent, QSize, Qt, QTemporaryDir, QThreadPool, QTimer, QUrl
+from PySide6.QtGui import QCloseEvent, QColor, QDesktopServices, QFont, QIcon
 from PySide6.QtWidgets import (
     QAbstractButton,
     QApplication,
@@ -50,6 +50,9 @@ COLOR_HEX = {
     Color.PURPLE: "#a855f7",
     Color.WHITE: "#f4f7fb",
 }
+
+PROJECT_URL = "https://github.com/kulunkilabs/aero-kbd"
+PRIOR_WORK_URL = "https://github.com/misaelzapata/aeroctl-linux-indicator"
 
 # Page label and the freedesktop icon shown beside it when the theme has one.
 PAGES = (
@@ -325,20 +328,68 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
         card, content = self._card()
+
+        identity = QHBoxLayout()
+        identity.setSpacing(16)
+        icon = QIcon.fromTheme("io.github.aero_keyboard_control", QIcon.fromTheme("input-keyboard"))
+        if not icon.isNull():
+            logo = QLabel()
+            logo.setPixmap(icon.pixmap(56, 56))
+            identity.addWidget(logo, 0, Qt.AlignTop)
+        name_block = QVBoxLayout()
+        name_block.setSpacing(4)
         heading = QLabel("Aero Keyboard Control")
         heading.setObjectName("sectionTitle")
-        content.addWidget(heading)
-        version = QLabel(f"Version {__version__}")
-        version.setObjectName("muted")
-        version.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        content.addWidget(version)
+        name_block.addWidget(heading)
+        version_row = QHBoxLayout()
+        version_row.setSpacing(8)
+        self.version_label = QLabel(f"Version {__version__}")
+        self.version_label.setObjectName("muted")
+        self.version_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        version_row.addWidget(self.version_label)
+        # PEP 440 marks a beta with a "b" segment, as in 0.1.0b1.
+        if "b" in __version__:
+            badge = QLabel("Beta")
+            badge.setObjectName("badge")
+            version_row.addWidget(badge)
+        version_row.addStretch()
+        name_block.addLayout(version_row)
+        identity.addLayout(name_block, 1)
+        content.addLayout(identity)
+
         text = QLabel(
-            "Native Linux RGB control for the GIGABYTE AERO X16. "
-            "This build exposes only hardware-validated commands for the "
-            "0414:8104 ITE-829X keyboard controller."
+            "Keyboard lighting control for GIGABYTE Aero laptops on Linux. "
+            "It talks to the keyboard directly, with no kernel module and no "
+            "background service, and sends only commands that were validated "
+            "on real hardware."
         )
         text.setWordWrap(True)
         content.addWidget(text)
+
+        content.addWidget(self._divider())
+        # The text is filled in by _apply_theme, which knows a readable link color.
+        self.about_facts = QLabel()
+        self.about_facts.setTextFormat(Qt.RichText)
+        self.about_facts.setWordWrap(True)
+        self.about_facts.setOpenExternalLinks(True)
+        content.addWidget(self.about_facts)
+
+        links = QHBoxLayout()
+        self.project_button = QPushButton("Project page")
+        self.project_button.setToolTip(PROJECT_URL)
+        self.project_button.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(PROJECT_URL)))
+        links.addWidget(self.project_button)
+        self.issue_button = QPushButton("Report a problem")
+        self.issue_button.setToolTip(f"{PROJECT_URL}/issues")
+        self.issue_button.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(f"{PROJECT_URL}/issues")))
+        links.addWidget(self.issue_button)
+        links.addStretch()
+        content.addLayout(links)
+
+        disclaimer = QLabel("An unofficial project, not affiliated with or endorsed by GIGABYTE.")
+        disclaimer.setObjectName("muted")
+        disclaimer.setWordWrap(True)
+        content.addWidget(disclaimer)
         layout.addWidget(card)
         layout.addStretch()
         return page
@@ -379,6 +430,7 @@ class MainWindow(QMainWindow):
             QLabel#sectionTitle {{ font-size: 17px; font-weight: 600; }}
             QLabel#fieldLabel {{ font-weight: 600; }}
             QLabel#muted {{ color: {muted}; }}
+            QLabel#badge {{ background: {_alpha(accent, 56)}; padding: 1px 8px; border-radius: 8px; font-size: 11px; font-weight: 600; }}
             QLabel#connection {{ padding: 6px 12px; border-radius: 14px; background: {field}; color: {muted}; }}
             QLabel#connection[state="ok"] {{ background: #2222c55e; color: {ok_text}; }}
             QLabel#connection[state="error"] {{ background: #22ef4444; color: {error_text}; }}
@@ -424,6 +476,23 @@ class MainWindow(QMainWindow):
             QStatusBar::item {{ border: none; }}
             """
         )
+        # Qt's default link blue is unreadable on a dark card.
+        link = (accent.lighter(150) if dark else accent.darker(125)).name()
+        facts = (
+            ("Supported", "GIGABYTE AERO X16 1WH (ITE-829X, 0414:8104)"),
+            ("Licence", "MIT"),
+            (
+                "Credits",
+                "Protocol based on reverse-engineering by Misael Zapata, "
+                f'<a href="{PRIOR_WORK_URL}" style="color: {link};">aeroctl-linux-indicator</a>',
+            ),
+        )
+        rows = "".join(
+            f'<tr><td style="padding: 4px 28px 4px 0;"><b>{name}</b></td>'
+            f'<td style="padding: 4px 0;">{value}</td></tr>'
+            for name, value in facts
+        )
+        self.about_facts.setText(f'<table cellspacing="0" cellpadding="0">{rows}</table>')
         # White would vanish on a light theme's pale buttons, so match each label.
         self.apply_button.set_ripple_color(accent_text)
         self.off_button.set_ripple_color(text)

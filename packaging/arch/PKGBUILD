@@ -2,12 +2,12 @@
 #
 # Release package, built from a tagged GitHub tarball. After tagging a new
 # version, bump pkgver and run `updpkgsums` (see docs/RELEASING.md).
-pkgname=aero-keyboard-control
+pkgname=aero-kbd
 pkgver=0.1.0b1
 pkgrel=1
 pkgdesc="Linux RGB keyboard control for GIGABYTE Aero laptops"
 arch=('any')
-url="https://github.com/kulunkilabs/aero-keyboard-control"
+url="https://github.com/kulunkilabs/aero-kbd"
 license=('MIT')
 depends=('python' 'pyside6')
 makedepends=('python-build' 'python-installer' 'python-hatchling')

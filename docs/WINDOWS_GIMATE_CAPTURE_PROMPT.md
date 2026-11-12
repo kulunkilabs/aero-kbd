@@ -11,7 +11,7 @@ We are reverse-engineering keyboard RGB control for my:
 - Controller family: ITE-829X
 - Known RGB control interface: USB interface 03
 - Windows application: GIGABYTE GiMATE
-- Linux project: aero-keyboard-control
+- Linux project: aero-kbd
 
 Goal:
 Passively capture and analyze the USB traffic GiMATE sends when changing the
