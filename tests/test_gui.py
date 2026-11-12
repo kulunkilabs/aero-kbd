@@ -9,9 +9,11 @@ import pytest
 pytest.importorskip("PySide6")
 
 from PySide6.QtCore import QEventLoop, QTimer
+from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication
 
 from aero_keyboard.discovery import HidInterface
+from aero_keyboard.errors import DeviceCommunicationError
 from aero_keyboard.gui import main_window
 from aero_keyboard.gui.main_window import MainWindow
 from aero_keyboard.protocol import Color, Effect, EffectState
@@ -559,3 +561,172 @@ def test_refresh_accepts_unknown_interface_number(window):
     assert "/dev/hidraw-test" in window.device_details.text()
     assert window.selected_color is Color.BLUE
     assert window.copy_button.isEnabled()
+
+
+def test_a_stale_handle_is_reopened_once_before_reporting_a_failure(application, window, monkeypatch):
+    window.apply_lighting()
+    _wait_for_worker(application, window)
+    stale = window._device
+    set_static = _FakeKeyboardDevice.set_static
+
+    def stale_write(device, color, *, brightness, speed=3):
+        if device is stale:
+            raise DeviceCommunicationError("could not send feature report: Broken pipe")
+        set_static(device, color, brightness=brightness, speed=speed)
+
+    monkeypatch.setattr(_FakeKeyboardDevice, "set_static", stale_write)
+    window.color_buttons[Color.BLUE].click()
+    _wait_for_worker(application, window)
+
+    assert window.error_banner.isHidden(), "a stale handle after resume must not surface as a failure"
+    assert stale.close_calls == 1
+    assert len(_FakeKeyboardDevice.instances) == 2
+    assert window._device is _FakeKeyboardDevice.instances[1]
+    assert window._device.writes[-1] == (Color.BLUE, window.brightness_slider.value())
+
+
+def test_a_failure_on_a_fresh_handle_is_reported_without_another_retry(application, window, monkeypatch):
+    window.apply_lighting()
+    _wait_for_worker(application, window)
+
+    def broken_write(device, color, *, brightness, speed=3):
+        raise DeviceCommunicationError("could not send feature report: No such device")
+
+    monkeypatch.setattr(_FakeKeyboardDevice, "set_static", broken_write)
+    window.color_buttons[Color.BLUE].click()
+    _wait_for_worker(application, window)
+
+    assert not window.error_banner.isHidden()
+    assert len(_FakeKeyboardDevice.instances) == 2, "exactly one retry with a fresh handle"
+    assert window._device is None
+
+
+def test_an_unaccepted_write_is_not_reported_as_verified(application, window, monkeypatch):
+    assert window.apply_button.isEnabled(), "nothing has been confirmed yet"
+    monkeypatch.setattr(
+        _FakeKeyboardDevice,
+        "effect_state",
+        lambda device: EffectState(effect=Effect.STATIC, speed=3, brightness=80, color=Color.RED, direction=0),
+    )
+    window.apply_button.click()
+    _wait_for_worker(application, window)
+
+    assert "did not accept" in window.status_bar.currentMessage()
+    assert window.apply_button.text() == "Apply"
+    assert window.apply_button.isEnabled()
+    assert window.brightness_slider.value() == main_window.DEFAULT_BRIGHTNESS, "the readback must not move the controls"
+    assert window.selected_color is Color.WHITE
+
+
+def test_applying_at_zero_brightness_sends_the_validated_off_command(application, window):
+    window.color_buttons[Color.BLUE].click()
+    _wait_for_worker(application, window)
+    window.brightness_slider.setValue(0)
+    window.apply_lighting()
+    _wait_for_worker(application, window)
+
+    device = _FakeKeyboardDevice.instances[-1]
+    assert device.writes[-1] == (Color.BLACK, 0)
+    assert "verified" in window.status_bar.currentMessage()
+
+
+def test_an_edit_during_the_first_read_keeps_the_keyboards_other_settings(application, window, monkeypatch):
+    started = Event()
+    release = Event()
+    effect_state = _FakeKeyboardDevice.effect_state
+
+    def blocked_read(device):
+        if not started.is_set():
+            started.set()
+            assert release.wait(5)
+            return EffectState(effect=Effect.STATIC, speed=3, brightness=80, color=Color.RED, direction=0)
+        return effect_state(device)
+
+    monkeypatch.setattr(_FakeKeyboardDevice, "effect_state", blocked_read)
+    window.refresh_device()
+    try:
+        assert started.wait(1)
+        window.color_buttons[Color.BLUE].click()  # queued behind the read
+    finally:
+        release.set()
+    _wait_for_worker(application, window)
+    _wait_for_worker(application, window)
+
+    assert window.selected_color is Color.BLUE, "the color the user picked is kept"
+    assert window.brightness_slider.value() == 80, "the brightness the user did not touch comes from the keyboard"
+    assert _FakeKeyboardDevice.instances[-1].writes == [(Color.BLUE, 80)]
+
+
+def test_a_read_with_a_pending_edit_does_not_claim_to_be_synchronized(window):
+    window.brightness_slider.setValue(70)
+    assert window._apply_timer.isActive()
+    state = EffectState(effect=Effect.STATIC, speed=3, brightness=30, color=Color.RED, direction=0)
+    window._device_refreshed((_interface(), "1.0.0", state), preserve_edits=True)
+
+    assert window.brightness_slider.value() == 70
+    assert window.selected_color is Color.RED
+    assert window._apply_timer.isActive(), "loading the color must not schedule another write"
+    assert "synchronized" not in window.status_bar.currentMessage()
+
+
+def test_device_details_follow_a_live_theme_change(application, window):
+    window._device_refreshed(
+        (_interface(), "1.0.0", EffectState(effect=Effect.STATIC, speed=3, brightness=25, color=Color.RED, direction=0))
+    )
+    original = QApplication.palette()
+    changed = QPalette(original)
+    changed.setColor(QPalette.Text, QColor("#123456"))
+    try:
+        QApplication.setPalette(changed)
+        application.processEvents()
+        window._apply_theme()
+        assert main_window._alpha(QColor("#123456"), 165) in window.device_details.text()
+        assert "/dev/hidraw-test" in window.device_details.text()
+    finally:
+        QApplication.setPalette(original)
+        application.processEvents()
+
+
+class _InvalidDir:
+    def isValid(self) -> bool:
+        return False
+
+    def path(self) -> str:
+        return ""
+
+
+def test_an_unusable_asset_directory_skips_the_custom_arrow(window, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    window._assets = _InvalidDir()
+    window._apply_theme()
+    assert "down-arrow" not in window.styleSheet()
+    assert list(tmp_path.iterdir()) == [], "nothing may be written into the working directory"
+
+
+def test_a_failed_arrow_write_skips_the_custom_arrow(window, monkeypatch):
+    def fail(*args, **kwargs):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(main_window.Path, "write_text", fail)
+    window._apply_theme()
+    assert "down-arrow" not in window.styleSheet()
+
+
+def test_refresh_passes_the_discovered_node_and_follows_a_new_one(application, window, monkeypatch):
+    window.refresh_device()
+    _wait_for_worker(application, window)
+    first = window._device
+    assert first.interface.device_path == "/dev/hidraw-test"
+
+    window.refresh_device()
+    _wait_for_worker(application, window)
+    assert window._device is first, "the same node keeps the same handle"
+
+    monkeypatch.setattr(main_window, "find_control_interface", lambda: replace(_interface(), device_path="/dev/hidraw-new"))
+    window.refresh_device()
+    _wait_for_worker(application, window)
+
+    assert first.close_calls == 1
+    assert window._device is not first
+    assert window._device.interface.device_path == "/dev/hidraw-new"
+    assert "/dev/hidraw-new" in window.device_details.text()

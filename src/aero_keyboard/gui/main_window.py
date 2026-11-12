@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
 
 from aero_keyboard import __version__
 from aero_keyboard.device import KeyboardDevice
-from aero_keyboard.discovery import find_control_interface
+from aero_keyboard.discovery import HidInterface, find_control_interface
 from aero_keyboard.errors import DeviceCommunicationError
 from aero_keyboard.protocol import Color, Effect, EffectState
 
@@ -83,12 +83,14 @@ class MainWindow(QMainWindow):
         self._busy = False
         self._closing = False
         self._loading = False
-        self._selection_revision = 0
+        # Controls changed since the last write was sent; a read must not replace them.
+        self._edited: set[str] = set()
         self._apply_pending = False
         self._refresh_after_write = False
         self._device: KeyboardDevice | None = None
         self._device_state: EffectState | None = None
         self._device_summary = ""
+        self._device_details: tuple[tuple[str, str], ...] = ()
         self._last_visible_brightness = DEFAULT_BRIGHTNESS
         self._theme_key: tuple[str, ...] | None = None
         # Holds the generated combo-box arrow, which a style sheet can only load from a file.
@@ -425,12 +427,20 @@ class MainWindow(QMainWindow):
         muted = _alpha(text, 165)
         ok_text = "#4ade80" if dark else "#15803d"
         error_text = "#fca5a5" if dark else "#b91c1c"
-        arrow = Path(self._assets.path()) / f"chevron-{text.name()[1:]}.svg"
-        arrow.write_text(
-            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12">'
-            f'<path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="{text.name()}" stroke-opacity=".65" '
-            'stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'
-        )
+        # Without a usable temporary directory, fall back to the style's own arrow.
+        arrow_rule = ""
+        if self._assets.isValid():
+            arrow = Path(self._assets.path()) / f"chevron-{text.name()[1:]}.svg"
+            try:
+                arrow.write_text(
+                    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12">'
+                    f'<path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="{text.name()}" stroke-opacity=".65" '
+                    'stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+                )
+            except OSError:
+                pass
+            else:
+                arrow_rule = f"QComboBox::down-arrow {{ image: url({arrow.as_posix()}); width: 12px; height: 12px; }}"
         self.setStyleSheet(
             f"""
             QMainWindow, QWidget#central {{ background: {window.name()}; color: {text.name()}; }}
@@ -454,7 +464,7 @@ class MainWindow(QMainWindow):
             QComboBox:hover {{ border-color: {strong_border}; }}
             QComboBox:focus {{ border-color: {accent.name()}; }}
             QComboBox::drop-down {{ border: none; width: 30px; }}
-            QComboBox::down-arrow {{ image: url({arrow.as_posix()}); width: 12px; height: 12px; }}
+            {arrow_rule}
             QComboBox QAbstractItemView {{ background: {card.name()}; border: 1px solid {border}; outline: none;
                 selection-background-color: {accent.name()}; selection-color: {accent_text.name()}; }}
             QPushButton {{ padding: 8px 16px; border: 1px solid {border}; border-radius: 8px; background: {field}; }}
@@ -503,6 +513,9 @@ class MainWindow(QMainWindow):
             for name, value in facts
         )
         self.about_facts.setText(f'<table cellspacing="0" cellpadding="0">{rows}</table>')
+        if self._device_details:
+            # The details table bakes in the muted color, so rebuild it for the new palette.
+            self._render_device_details()
         self.donate_button.setIcon(coffee_icon(text))
         # White would vanish on a light theme's pale buttons, so match each label.
         self.apply_button.set_ripple_color(accent_text)
@@ -533,7 +546,7 @@ class MainWindow(QMainWindow):
         self.connection_label.style().polish(self.connection_label)
 
     def _select_color(self, color: Color) -> None:
-        self._selection_revision += 1
+        self._edited.add("color")
         self.selected_color = color
         if self.brightness_slider.value() == 0:
             # Choosing a color while the lighting is off means turn it back on.
@@ -549,7 +562,7 @@ class MainWindow(QMainWindow):
             self._last_visible_brightness = value
         if self._loading:
             return
-        self._selection_revision += 1
+        self._edited.add("brightness")
         self._describe_selection()
         self._schedule_apply()
 
@@ -642,7 +655,16 @@ class MainWindow(QMainWindow):
         def operation_with_cleanup():
             # A request that outlives the window closes the handle itself.
             try:
-                return operation()
+                previous = self._device
+                try:
+                    return operation()
+                except DeviceCommunicationError:
+                    # A handle kept across suspend/resume or a USB reset goes stale:
+                    # reopen it once, but report a failure on a fresh handle as is.
+                    if previous is None or self._device is not previous or self._closing:
+                        raise
+                    self._discard_device()
+                    return operation()
             finally:
                 if self._closing:
                     self._discard_device()
@@ -673,12 +695,16 @@ class MainWindow(QMainWindow):
         worker.signals.finished.connect(finished)
         self.thread_pool.start(worker)
 
-    def _keyboard(self) -> KeyboardDevice:
+    def _keyboard(self, interface: HidInterface | None = None) -> KeyboardDevice:
         """Reuse one open handle; os.open on this node costs ~50 ms per call."""
         if self._closing:
             raise RuntimeError("The window is closing")
+        current = None if self._device is None else self._device.interface
+        if interface is not None and current is not None and current.device_path != interface.device_path:
+            # Discovery found another node, e.g. after a re-plug: follow it.
+            self._discard_device()
         if self._device is None:
-            self._device = KeyboardDevice()
+            self._device = KeyboardDevice(interface)
         self._device.open()
         return self._device
 
@@ -692,24 +718,22 @@ class MainWindow(QMainWindow):
             self._device = None
 
     def refresh_device(self) -> None:
-        selection_revision = self._selection_revision
-
         def snapshot():
             interface = find_control_interface()
             if interface is None:
                 raise RuntimeError("Supported RGB control interface was not found")
-            keyboard = self._keyboard()
+            keyboard = self._keyboard(interface)
             firmware = keyboard.firmware_version()
             state = keyboard.effect_state()
             return interface, firmware, state
 
         self._run(
             snapshot,
-            lambda result: self._device_refreshed(result, selection_revision=selection_revision),
+            lambda result: self._device_refreshed(result, preserve_edits=True),
             "Reading keyboard…",
         )
 
-    def _device_refreshed(self, result, *, selection_revision: int | None = None) -> None:
+    def _device_refreshed(self, result, *, preserve_edits: bool = False) -> None:
         interface, firmware, state = result
         self._set_connection("ok", "AERO X16 connected")
         self._refresh_after_write = False
@@ -722,38 +746,40 @@ class MainWindow(QMainWindow):
             ("Firmware", str(firmware)),
         )
         self._device_summary = "\n".join(f"{name}: {value}" for name, value in details)
+        self._device_details = details
+        self._render_device_details()
+        self.copy_button.setEnabled(True)
+        edits_pending = preserve_edits and bool(self._edited)
+        self._load_state(state, preserve_edits=preserve_edits)
+        if edits_pending:
+            self._set_state_status(state, "Keyboard read; applying your change…")
+        else:
+            self._set_state_status(state, "Settings synchronized with keyboard")
+
+    def _render_device_details(self) -> None:
         muted = _alpha(QApplication.palette().text().color(), 165)
         rows = "".join(
             f'<tr><td style="color: {muted}; padding: 4px 28px 4px 0;">{escape(name)}</td>'
             f'<td style="padding: 4px 0;">{escape(value)}</td></tr>'
-            for name, value in details
+            for name, value in self._device_details
         )
         self.device_details.setTextFormat(Qt.RichText)
         self.device_details.setText(f'<table cellspacing="0" cellpadding="0">{rows}</table>')
-        self.copy_button.setEnabled(True)
-        self._load_state(state, selection_revision=selection_revision)
-        self._set_state_status(state, "Settings synchronized with keyboard")
 
     def _copy_device_details(self) -> None:
         QApplication.clipboard().setText(self._device_summary)
         self._set_status("Device details copied to the clipboard")
 
-    def _load_state(self, state: EffectState, *, selection_revision: int | None = None) -> None:
+    def _load_state(self, state: EffectState, *, preserve_edits: bool = False) -> None:
         """Mirror hardware state without replacing edits made during the read."""
-        if selection_revision is not None and (
-            selection_revision != self._selection_revision
-            or self._apply_pending
-            or self._apply_timer.isActive()
-        ):
-            self._device_state = state
-            self._update_apply_button()
-            return
+        edited = self._edited if preserve_edits else set()
         self._loading = True
         try:
-            if isinstance(state.color, Color) and state.color in self.color_buttons:
+            if "color" not in edited and isinstance(state.color, Color) and state.color in self.color_buttons:
                 self.selected_color = state.color
                 self.color_buttons[state.color].setChecked(True)
-            self.brightness_slider.setValue(max(0, min(100, state.brightness)))
+            if "brightness" not in edited:
+                self.brightness_slider.setValue(max(0, min(100, state.brightness)))
             self._describe_selection()
         finally:
             self._loading = False
@@ -763,8 +789,10 @@ class MainWindow(QMainWindow):
     def apply_lighting(self) -> None:
         self._apply_timer.stop()
         self._apply_pending = False
-        color = self.selected_color
-        brightness = self.brightness_slider.value()
+        self._edited.clear()
+        # Brightness 0 sends the validated off command, as turn_off() does.
+        requested_color, brightness = self._requested()
+        color = Color(requested_color)
 
         def apply():
             keyboard = self._keyboard()
@@ -792,6 +820,12 @@ class MainWindow(QMainWindow):
         self._device_state = state
         self._restore_connection_after_write()
         self._update_apply_button()
+        if self._confirmed() != (int(color), brightness):
+            # The readback disagrees with what was sent; leave Apply on offer.
+            self._apply_reset_timer.stop()
+            self._reset_apply_button()
+            self._set_status("Keyboard did not accept the change")
+            return
         self._set_state_status(state, "Lighting applied and verified" if verified else "Lighting applied")
         if self._apply_clicked:
             self._apply_clicked = False
@@ -807,7 +841,7 @@ class MainWindow(QMainWindow):
     def turn_off(self) -> None:
         self._apply_timer.stop()
         self._apply_pending = False
-        selection_revision = self._selection_revision
+        self._edited.clear()
 
         def off():
             keyboard = self._keyboard()
@@ -816,13 +850,13 @@ class MainWindow(QMainWindow):
 
         self._run(
             off,
-            lambda state: self._lighting_off(state, selection_revision=selection_revision),
+            lambda state: self._lighting_off(state, preserve_edits=True),
             "Turning lighting off…",
         )
 
-    def _lighting_off(self, state: EffectState, *, selection_revision: int | None = None) -> None:
+    def _lighting_off(self, state: EffectState, *, preserve_edits: bool = False) -> None:
         self._restore_connection_after_write()
-        self._load_state(state, selection_revision=selection_revision)
+        self._load_state(state, preserve_edits=preserve_edits)
         self._set_state_status(state, "Keyboard lighting is off")
 
     def _operation_failed(self, message: str) -> None:
@@ -839,6 +873,7 @@ class MainWindow(QMainWindow):
         self._device_state = None
         self._refresh_after_write = True
         self._device_summary = ""
+        self._device_details = ()
         self.copy_button.setEnabled(False)
         self.device_details.setTextFormat(Qt.PlainText)
         self.device_details.setText(f"Keyboard is not available.\n\n{message}")

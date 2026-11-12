@@ -182,3 +182,23 @@ def test_failed_close_clears_handle_and_allows_reopen():
     assert closed == [42]
     keyboard.open()
     assert opened == [42, 43]
+
+
+def _failing_closer(fd):
+    raise OSError(5, "Input/output error")
+
+
+def test_context_manager_close_failure_does_not_fail_a_successful_body():
+    keyboard = KeyboardDevice(_interface(), opener=lambda path, flags: 42, closer=_failing_closer)
+    with keyboard:
+        result = "done"
+    assert result == "done"
+    assert not keyboard.is_open
+
+
+def test_context_manager_close_failure_does_not_mask_the_body_exception():
+    keyboard = KeyboardDevice(_interface(), opener=lambda path, flags: 42, closer=_failing_closer)
+    with pytest.raises(ValueError, match="body failed"):
+        with keyboard:
+            raise ValueError("body failed")
+    assert not keyboard.is_open

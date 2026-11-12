@@ -74,8 +74,9 @@ fi
 
 mkdir -p "$state_dir" "$applications_dir" "$icons_dir"
 
-if [ ! -x "$venv_dir/bin/python" ]; then
-  python3 -m venv "$venv_dir"
+# A system Python upgrade can leave an existing venv without a working pip; rebuild it then.
+if ! "$venv_dir/bin/python" -m pip --version >/dev/null 2>&1; then
+  python3 -m venv --clear "$venv_dir"
 fi
 
 "$venv_dir/bin/pip" install -q --upgrade pip
@@ -121,7 +122,14 @@ fi
 
 if [ "$skip_udev" = false ]; then
   if [ -w /etc/udev/rules.d ] 2>/dev/null; then
-    sh "$project_dir/scripts/install-dev-rule.sh"
+    # Already allowed to write the rule (e.g. as root), so do not depend on sudo.
+    rule_target=/etc/udev/rules.d/70-aero-keyboard.rules
+    install -D -m 0644 "$project_dir/packaging/udev/70-aero-keyboard.rules" "$rule_target"
+    if command -v udevadm >/dev/null 2>&1; then
+      udevadm control --reload-rules || true
+      udevadm trigger --subsystem-match=hidraw --action=add || true
+    fi
+    printf '\nInstalled %s\n' "$rule_target"
   elif command -v sudo >/dev/null 2>&1; then
     sh "$project_dir/scripts/install-dev-rule.sh"
   else

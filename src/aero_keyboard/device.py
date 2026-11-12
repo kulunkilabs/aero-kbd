@@ -108,7 +108,12 @@ class KeyboardDevice:
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        self.close()
+        # The fd is already cleared, so a failed close must not mask the body's
+        # own exception or turn a successful body into a failure.
+        try:
+            self.close()
+        except DeviceCommunicationError:
+            pass
 
     def _require_fd(self) -> int:
         if self._fd is None:
