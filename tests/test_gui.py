@@ -1,4 +1,6 @@
 import os
+from dataclasses import replace
+from threading import Event
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -73,6 +75,7 @@ def _hardware_free(monkeypatch):
     class MainWindow constructs with a fake one for every test."""
     _FakeKeyboardDevice.instances.clear()
     monkeypatch.setattr(main_window, "KeyboardDevice", _FakeKeyboardDevice)
+    monkeypatch.setattr(main_window, "find_control_interface", lambda: _interface())
 
 
 def _wait_for_worker(application, window) -> None:
@@ -464,3 +467,95 @@ def test_the_about_page_shows_the_version_and_opens_project_links(window, monkey
 
     assert opened == [main_window.PROJECT_URL, f"{main_window.PROJECT_URL}/issues", "https://ko-fi.com/kulunkilabs"]
     assert not window.donate_button.icon().isNull()
+
+
+def test_shutdown_defers_device_close_until_worker_finishes(application, window, monkeypatch):
+    started = Event()
+    release = Event()
+    set_static = _FakeKeyboardDevice.set_static
+
+    def blocked_write(device, color, *, brightness, speed=3):
+        started.set()
+        assert release.wait(5)
+        set_static(device, color, brightness=brightness, speed=speed)
+
+    monkeypatch.setattr(_FakeKeyboardDevice, "set_static", blocked_write)
+    window.apply_lighting()
+    try:
+        assert started.wait(1)
+        device = _FakeKeyboardDevice.instances[-1]
+        with monkeypatch.context() as closing:
+            closing.setattr(window.thread_pool, "waitForDone", lambda timeout: False)
+            window.close()
+            assert device.close_calls == 0
+    finally:
+        release.set()
+        assert window.thread_pool.waitForDone(1000)
+    application.processEvents()
+    assert device.close_calls == 1
+    assert window._device is None
+    window.apply_lighting()
+    assert len(_FakeKeyboardDevice.instances) == 1
+
+
+@pytest.mark.parametrize("operation", ["refresh_device", "turn_off"])
+def test_refresh_and_power_off_preserve_inflight_edits(application, window, monkeypatch, operation):
+    started = Event()
+    release = Event()
+    effect_state = _FakeKeyboardDevice.effect_state
+
+    def blocked_read(device):
+        state = effect_state(device)
+        if not started.is_set():
+            started.set()
+            assert release.wait(5)
+        return state
+
+    monkeypatch.setattr(main_window, "find_control_interface", lambda: _interface())
+    monkeypatch.setattr(_FakeKeyboardDevice, "effect_state", blocked_read)
+    getattr(window, operation)()
+    try:
+        assert started.wait(1)
+        window.color_buttons[Color.BLUE].click()
+        window.brightness_slider.setValue(70)
+        window._apply_timer.stop()
+        window._apply_now()
+    finally:
+        release.set()
+    _wait_for_worker(application, window)
+    _wait_for_worker(application, window)
+    assert window.selected_color is Color.BLUE
+    assert window.brightness_slider.value() == 70
+    assert _FakeKeyboardDevice.instances[-1].writes[-1] == (Color.BLUE, 70)
+
+
+def test_non_static_hardware_remains_unsynchronized(window):
+    state = EffectState(effect=Effect.WAVE, speed=3, brightness=25, color=Color.WHITE, direction=0)
+    window._device_refreshed((_interface(), "1.0.0", state))
+    assert window.effect_combo.count() == 1
+    assert window.effect_combo.currentData() is Effect.STATIC
+    assert window.apply_button.isEnabled()
+    assert "not Static" in window.status_bar.currentMessage()
+
+
+@pytest.mark.parametrize("operation", ["apply_lighting", "turn_off"])
+def test_successful_write_restores_connection_and_device_details(application, window, operation):
+    window._operation_failed("device went away")
+    getattr(window, operation)()
+    _wait_for_worker(application, window)
+    _wait_for_worker(application, window)
+    assert window.connection_label.property("state") == "ok"
+    assert window.error_banner.isHidden()
+    assert "/dev/hidraw-test" in window.device_details.text()
+    assert "1.0.0" in window.device_details.text()
+    assert window.copy_button.isEnabled()
+
+
+def test_refresh_accepts_unknown_interface_number(window):
+    interface = replace(_interface(), interface_number=None)
+    state = EffectState(effect=Effect.STATIC, speed=3, brightness=25, color=Color.BLUE, direction=0)
+    window._device_refreshed((interface, "1.0.0", state))
+    assert "unknown" in window.device_details.text()
+    assert "/dev/hidraw-test" in window.device_details.text()
+    assert window.selected_color is Color.BLUE
+    assert window.copy_button.isEnabled()

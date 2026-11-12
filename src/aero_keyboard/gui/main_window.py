@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 from aero_keyboard import __version__
 from aero_keyboard.device import KeyboardDevice
 from aero_keyboard.discovery import find_control_interface
+from aero_keyboard.errors import DeviceCommunicationError
 from aero_keyboard.protocol import Color, Effect, EffectState
 
 from .widgets import ColorSwatch, KeyboardPreview, RippleButton, coffee_icon
@@ -80,8 +81,11 @@ class MainWindow(QMainWindow):
         self._workers: set[DeviceWorker] = set()
         self.selected_color = Color.WHITE
         self._busy = False
+        self._closing = False
         self._loading = False
+        self._selection_revision = 0
         self._apply_pending = False
+        self._refresh_after_write = False
         self._device: KeyboardDevice | None = None
         self._device_state: EffectState | None = None
         self._device_summary = ""
@@ -529,6 +533,7 @@ class MainWindow(QMainWindow):
         self.connection_label.style().polish(self.connection_label)
 
     def _select_color(self, color: Color) -> None:
+        self._selection_revision += 1
         self.selected_color = color
         if self.brightness_slider.value() == 0:
             # Choosing a color while the lighting is off means turn it back on.
@@ -544,6 +549,7 @@ class MainWindow(QMainWindow):
             self._last_visible_brightness = value
         if self._loading:
             return
+        self._selection_revision += 1
         self._describe_selection()
         self._schedule_apply()
 
@@ -595,7 +601,7 @@ class MainWindow(QMainWindow):
 
     def _confirmed(self) -> tuple[int, int] | None:
         state = self._device_state
-        if state is None:
+        if state is None or state.effect != Effect.STATIC:
             return None
         color = Color.BLACK if state.brightness == 0 else state.color
         return int(color), state.brightness
@@ -607,6 +613,11 @@ class MainWindow(QMainWindow):
 
     def _set_status(self, message: str) -> None:
         self.status_bar.showMessage(message)
+
+    def _set_state_status(self, state: EffectState, message: str) -> None:
+        if state.effect != Effect.STATIC:
+            message = "Keyboard effect is not Static. Apply to switch to Static."
+        self._set_status(message)
 
     def _set_busy(self, busy: bool, message: str | None = None) -> None:
         if busy != self._busy:
@@ -623,29 +634,49 @@ class MainWindow(QMainWindow):
             self._set_status(message)
 
     def _run(self, operation, on_success, message: str) -> None:
-        if self._busy:
+        if self._busy or self._closing:
             return
         self.error_banner.hide()
         self._set_busy(True, message)
-        worker = DeviceWorker(operation)
-        worker.signals.succeeded.connect(on_success)
+
+        def operation_with_cleanup():
+            # A request that outlives the window closes the handle itself.
+            try:
+                return operation()
+            finally:
+                if self._closing:
+                    self._discard_device()
+
+        def succeeded(result):
+            if not self._closing:
+                on_success(result)
+
+        worker = DeviceWorker(operation_with_cleanup)
+        worker.signals.succeeded.connect(succeeded)
         worker.signals.failed.connect(self._operation_failed)
         self._workers.add(worker)
 
         def finished() -> None:
-            self._set_busy(False)
             self._workers.discard(worker)
+            if self._closing:
+                return
+            self._set_busy(False)
             if self._apply_pending:
                 self._apply_pending = False
                 # A write queued up behind this one: send it now rather than
                 # waiting out a fresh 120 ms debounce for a decision already made.
                 self._apply_now()
+            elif self._refresh_after_write and self._device_state is not None:
+                self._refresh_after_write = False
+                self.refresh_device()
 
         worker.signals.finished.connect(finished)
         self.thread_pool.start(worker)
 
     def _keyboard(self) -> KeyboardDevice:
         """Reuse one open handle; os.open on this node costs ~50 ms per call."""
+        if self._closing:
+            raise RuntimeError("The window is closing")
         if self._device is None:
             self._device = KeyboardDevice()
         self._device.open()
@@ -656,11 +687,13 @@ class MainWindow(QMainWindow):
         if self._device is not None:
             try:
                 self._device.close()
-            except OSError:
+            except DeviceCommunicationError:
                 pass
             self._device = None
 
     def refresh_device(self) -> None:
+        selection_revision = self._selection_revision
+
         def snapshot():
             interface = find_control_interface()
             if interface is None:
@@ -670,15 +703,21 @@ class MainWindow(QMainWindow):
             state = keyboard.effect_state()
             return interface, firmware, state
 
-        self._run(snapshot, self._device_refreshed, "Reading keyboard…")
+        self._run(
+            snapshot,
+            lambda result: self._device_refreshed(result, selection_revision=selection_revision),
+            "Reading keyboard…",
+        )
 
-    def _device_refreshed(self, result) -> None:
+    def _device_refreshed(self, result, *, selection_revision: int | None = None) -> None:
         interface, firmware, state = result
         self._set_connection("ok", "AERO X16 connected")
+        self._refresh_after_write = False
+        number = "unknown" if interface.interface_number is None else f"{interface.interface_number:02x}"
         details = (
             ("Model", "GIGABYTE AERO X16 1WH"),
             ("Controller", f"{interface.vendor_id:04x}:{interface.product_id:04x}"),
-            ("Interface", f"{interface.interface_number:02x} · usage page 0xff01"),
+            ("Interface", f"{number} · usage page 0xff01"),
             ("Device", str(interface.device_path)),
             ("Firmware", str(firmware)),
         )
@@ -692,15 +731,23 @@ class MainWindow(QMainWindow):
         self.device_details.setTextFormat(Qt.RichText)
         self.device_details.setText(f'<table cellspacing="0" cellpadding="0">{rows}</table>')
         self.copy_button.setEnabled(True)
-        self._load_state(state)
-        self._set_status("Settings synchronized with keyboard")
+        self._load_state(state, selection_revision=selection_revision)
+        self._set_state_status(state, "Settings synchronized with keyboard")
 
     def _copy_device_details(self) -> None:
         QApplication.clipboard().setText(self._device_summary)
         self._set_status("Device details copied to the clipboard")
 
-    def _load_state(self, state: EffectState) -> None:
-        """Mirror confirmed hardware state without re-triggering a live write."""
+    def _load_state(self, state: EffectState, *, selection_revision: int | None = None) -> None:
+        """Mirror hardware state without replacing edits made during the read."""
+        if selection_revision is not None and (
+            selection_revision != self._selection_revision
+            or self._apply_pending
+            or self._apply_timer.isActive()
+        ):
+            self._device_state = state
+            self._update_apply_button()
+            return
         self._loading = True
         try:
             if isinstance(state.color, Color) and state.color in self.color_buttons:
@@ -743,29 +790,44 @@ class MainWindow(QMainWindow):
             # instead of paying for a readback a subsequent write would replace.
             state = EffectState(effect=Effect.STATIC, speed=3, brightness=brightness, color=color, direction=0)
         self._device_state = state
+        self._restore_connection_after_write()
         self._update_apply_button()
-        self._set_status("Lighting applied and verified" if verified else "Lighting applied")
+        self._set_state_status(state, "Lighting applied and verified" if verified else "Lighting applied")
         if self._apply_clicked:
             self._apply_clicked = False
             self.apply_button.setText("Applied \u2713")
             self._apply_reset_timer.start()
 
+    def _restore_connection_after_write(self) -> None:
+        self._set_connection("ok", "AERO X16 connected")
+        if self._refresh_after_write:
+            self.device_details.setTextFormat(Qt.PlainText)
+            self.device_details.setText("Keyboard connected. Reading device details…")
+
     def turn_off(self) -> None:
         self._apply_timer.stop()
         self._apply_pending = False
+        selection_revision = self._selection_revision
 
         def off():
             keyboard = self._keyboard()
             keyboard.set_static(Color.BLACK, brightness=0)
             return keyboard.effect_state()
 
-        self._run(off, self._lighting_off, "Turning lighting off…")
+        self._run(
+            off,
+            lambda state: self._lighting_off(state, selection_revision=selection_revision),
+            "Turning lighting off…",
+        )
 
-    def _lighting_off(self, state: EffectState) -> None:
-        self._load_state(state)
-        self._set_status("Keyboard lighting is off")
+    def _lighting_off(self, state: EffectState, *, selection_revision: int | None = None) -> None:
+        self._restore_connection_after_write()
+        self._load_state(state, selection_revision=selection_revision)
+        self._set_state_status(state, "Keyboard lighting is off")
 
     def _operation_failed(self, message: str) -> None:
+        if self._closing:
+            return
         self._set_connection("error", "Keyboard unavailable")
         self._apply_reset_timer.stop()
         self._reset_apply_button()
@@ -775,6 +837,7 @@ class MainWindow(QMainWindow):
         self._discard_device()
         # The device did not answer, so the last read no longer describes it.
         self._device_state = None
+        self._refresh_after_write = True
         self._device_summary = ""
         self.copy_button.setEnabled(False)
         self.device_details.setTextFormat(Qt.PlainText)
@@ -785,15 +848,17 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent) -> None:
         """Detach in-flight workers before their signals can reach a dead window."""
+        self._closing = True
         self._apply_timer.stop()
         self._apply_reset_timer.stop()
         self._apply_pending = False
+        self._refresh_after_write = False
         for worker in self._workers:
             worker.signals.succeeded.disconnect()
             worker.signals.failed.disconnect()
             worker.signals.finished.disconnect()
         self._workers.clear()
         self._set_busy(False)
-        self.thread_pool.waitForDone(2000)
-        self._discard_device()
+        if self.thread_pool.waitForDone(2000):
+            self._discard_device()
         super().closeEvent(event)

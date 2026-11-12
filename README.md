@@ -84,6 +84,15 @@ private virtualenv under `~/.local/share/aero-kbd`, adds a menu
 entry and icon, and asks for `sudo` once to install the udev rule. Then open
 **Aero Keyboard Control** from your application menu.
 
+The installer falls back to `main` only when GitHub reports no release (HTTP
+404); other release-lookup failures stop the installation. Set `AERO_KBD_REF`
+to select a tag or branch explicitly.
+
+Without `sudo`, the udev rule is saved under
+`$XDG_DATA_HOME/aero-kbd/70-aero-keyboard.rules`
+(`~/.local/share/aero-kbd/70-aero-keyboard.rules` by default). The installer
+prints instructions for installing it from a root shell.
+
 To remove it again:
 
 ```bash
@@ -122,6 +131,9 @@ color swatches, brightness, and a Turn off / Turn on button. Color and brightnes
 written to the keyboard as you make them, and a slider drag is coalesced into
 a single report. Apply remains as a fallback and is offered only when a change
 has not reached the hardware.
+
+If the keyboard is running a non-static effect, Apply stays available to switch
+it to Static.
 Only the hardware-validated static effect is currently shown. The normal window
 works on KDE, GNOME, and Hyprland without requiring a tray extension.
 

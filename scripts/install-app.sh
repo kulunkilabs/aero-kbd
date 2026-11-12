@@ -96,7 +96,23 @@ fi
 install -D -m 0644 "$icon_src" "$icon_dst"
 
 # Desktop entries must use an absolute Exec path so session PATH is irrelevant.
-sed "s|^Exec=.*|Exec=${gui_bin}|" "$desktop_src" >"$desktop_dst"
+python3 - "$desktop_src" "$desktop_dst" "$gui_bin" <<'PY'
+import sys
+from pathlib import Path
+
+source, destination, executable = sys.argv[1:]
+quoted = executable.replace("\\", "\\\\").replace("%", "%%")
+for character in ('"', '`', '$'):
+    quoted = quoted.replace(character, "\\" + character)
+value = ('"' + quoted + '"').replace("\\", "\\\\")
+value = value.replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+desktop = Path(source).read_text(encoding="utf-8")
+desktop = "".join(
+    f"Exec={value}\n" if line.startswith("Exec=") else line
+    for line in desktop.splitlines(keepends=True)
+)
+Path(destination).write_text(desktop, encoding="utf-8")
+PY
 chmod 0644 "$desktop_dst"
 
 if command -v update-desktop-database >/dev/null 2>&1; then
@@ -109,8 +125,12 @@ if [ "$skip_udev" = false ]; then
   elif command -v sudo >/dev/null 2>&1; then
     sh "$project_dir/scripts/install-dev-rule.sh"
   else
-    printf '\nSkipping udev rule (no sudo). Install later with:\n'
-    printf '  %s/scripts/install-dev-rule.sh\n\n' "$project_dir"
+    saved_rule="$state_dir/70-aero-keyboard.rules"
+    install -m 0644 "$project_dir/packaging/udev/70-aero-keyboard.rules" "$saved_rule"
+    printf '\nSkipping udev rule (no sudo). The rule is saved at:\n  %s\n' "$saved_rule"
+    printf 'As root, copy it to /etc/udev/rules.d/70-aero-keyboard.rules, then run:\n'
+    printf '  udevadm control --reload-rules\n'
+    printf '  udevadm trigger --subsystem-match=hidraw --action=add\n\n'
   fi
 fi
 

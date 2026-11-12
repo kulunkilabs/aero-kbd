@@ -13,5 +13,9 @@ class DevicePermissionError(AeroKeyboardError):
     """Raised when hidraw permissions do not permit safe access."""
 
 
+class DeviceCommunicationError(AeroKeyboardError):
+    """Raised when a controller transfer or handle operation fails."""
+
+
 class ProtocolValidationError(AeroKeyboardError, ValueError):
     """Raised before an invalid report can reach the hardware."""

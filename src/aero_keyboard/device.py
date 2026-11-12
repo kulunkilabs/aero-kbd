@@ -9,8 +9,15 @@ from collections.abc import Callable
 from types import TracebackType
 
 from .discovery import HidInterface, find_control_interface
-from .errors import DeviceNotFoundError, DevicePermissionError, ProtocolValidationError
+from .errors import (
+    DeviceCommunicationError,
+    DeviceNotFoundError,
+    DevicePermissionError,
+    ProtocolValidationError,
+)
 from .protocol import (
+    CMD_GET_FIRMWARE,
+    REPORT_ID,
     REPORT_SIZE,
     Color,
     Effect,
@@ -84,8 +91,12 @@ class KeyboardDevice:
 
     def close(self) -> None:
         if self._fd is not None:
-            self._closer(self._fd)
+            fd = self._fd
             self._fd = None
+            try:
+                self._closer(fd)
+            except OSError as error:
+                raise DeviceCommunicationError(f"could not close keyboard: {error.strerror or error}") from error
 
     def __enter__(self) -> KeyboardDevice:
         self.open()
@@ -109,17 +120,39 @@ class KeyboardDevice:
         if len(report) != REPORT_SIZE:
             raise ProtocolValidationError(f"outbound report must be {REPORT_SIZE} bytes")
         buffer = array.array("B", report)
-        self._ioctl(self._require_fd(), _hidiocsfeature(REPORT_SIZE), buffer, True)
+        try:
+            count = self._ioctl(self._require_fd(), _hidiocsfeature(REPORT_SIZE), buffer, True)
+        except OSError as error:
+            raise DeviceCommunicationError(
+                f"could not send feature report: {error.strerror or error}"
+            ) from error
+        if count != REPORT_SIZE:
+            raise DeviceCommunicationError(
+                f"HIDIOCSFEATURE returned {count} bytes; expected {REPORT_SIZE}"
+            )
 
     def _receive(self) -> bytes:
         buffer = array.array("B", [0] * REPORT_SIZE)
-        self._ioctl(self._require_fd(), _hidiogfeature(REPORT_SIZE), buffer, True)
+        try:
+            count = self._ioctl(self._require_fd(), _hidiogfeature(REPORT_SIZE), buffer, True)
+        except OSError as error:
+            raise DeviceCommunicationError(
+                f"could not receive feature report: {error.strerror or error}"
+            ) from error
+        if count != REPORT_SIZE:
+            raise DeviceCommunicationError(
+                f"HIDIOCGFEATURE returned {count} bytes; expected {REPORT_SIZE}"
+            )
         return buffer.tobytes()
 
     def firmware_version(self) -> str:
         """Query the controller firmware version."""
         self._send(build_get_firmware_packet())
         response = self._receive()
+        if response[0] != REPORT_ID:
+            raise ProtocolValidationError("firmware response report ID is invalid")
+        if response[1] != CMD_GET_FIRMWARE:
+            raise ProtocolValidationError("firmware response command is invalid")
         major, minor = response[2], response[3]
         return f"{major}.{minor // 10}.{minor % 10}" if minor >= 10 else f"{major}.{minor}"
 

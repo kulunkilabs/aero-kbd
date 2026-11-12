@@ -10,7 +10,6 @@ from pathlib import Path
 DEFAULT_VENDOR_ID = 0x0414
 DEFAULT_PRODUCT_ID = 0x8104
 CONTROL_USAGE_PAGE = 0xFF01
-_CONTROL_USAGE_PAGE_DESCRIPTOR = b"\x06\x01\xff"
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,6 +70,27 @@ def _device_node(hid_path: Path, dev_root: Path) -> Path:
     return dev_root / names[0] if names else dev_root / "unavailable"
 
 
+def _has_control_usage_page(descriptor: bytes) -> bool:
+    """Walk the descriptor's short items for a Usage Page of 0xFF01."""
+    offset = 0
+    found = False
+    while offset < len(descriptor):
+        prefix = descriptor[offset]
+        if prefix == 0xFE:
+            return False
+        size = prefix & 0x03
+        if size == 3:
+            size = 4
+        end = offset + 1 + size
+        if end > len(descriptor):
+            return False
+        if prefix & 0xFC == 0x04:
+            value = int.from_bytes(descriptor[offset + 1:end], "little")
+            found = found or value == CONTROL_USAGE_PAGE
+        offset = end
+    return found
+
+
 def discover_interfaces(
     vendor_id: int = DEFAULT_VENDOR_ID,
     product_id: int = DEFAULT_PRODUCT_ID,
@@ -92,7 +112,7 @@ def discover_interfaces(
             continue
 
         properties = _read_properties(hid_path / "uevent")
-        is_control = _CONTROL_USAGE_PAGE_DESCRIPTOR in descriptor
+        is_control = _has_control_usage_page(descriptor)
         node = _device_node(hid_path, dev_root)
         present = node.exists()
         interfaces.append(

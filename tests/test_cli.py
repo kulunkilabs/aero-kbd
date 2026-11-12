@@ -3,6 +3,7 @@ import json
 import pytest
 
 from aero_keyboard import cli
+from aero_keyboard.device import KeyboardDevice
 from aero_keyboard.discovery import HidInterface
 from aero_keyboard.errors import DeviceNotFoundError
 
@@ -78,3 +79,22 @@ def test_expected_device_error_is_reported_without_traceback(monkeypatch, capsys
         cli.main(["status"])
     assert error.value.code == 2
     assert "not found" in capsys.readouterr().err
+
+
+def test_ioctl_failure_uses_cli_error_diagnostic(monkeypatch, capsys):
+    def failing_ioctl(*args):
+        raise OSError(5, "Input/output error")
+
+    keyboard = KeyboardDevice(
+        _control_interface(),
+        opener=lambda path, flags: 42,
+        closer=lambda fd: None,
+        ioctl=failing_ioctl,
+    )
+    monkeypatch.setattr(cli, "KeyboardDevice", lambda: keyboard)
+    with pytest.raises(SystemExit) as error:
+        cli.main(["status"])
+    assert error.value.code == 2
+    diagnostic = capsys.readouterr().err
+    assert "Input/output error" in diagnostic
+    assert "Traceback" not in diagnostic

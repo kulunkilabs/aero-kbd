@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from aero_keyboard.discovery import discover_interfaces, find_control_interface
 
 
@@ -62,3 +64,38 @@ def test_find_control_interface_rejects_ambiguous_matches(tmp_path):
         )
 
     assert find_control_interface(sysfs_root=sysfs_root, dev_root=dev_root) is None
+
+
+@pytest.mark.parametrize(
+    "descriptor",
+    [
+        b"\x17\xaa\x06\x01\xff",
+        b"\x06\x01\xff\x75",
+        b"\xfe\x03\x00\x06\x01\xff",
+    ],
+)
+def test_discovery_rejects_embedded_and_incomplete_usage_pages(tmp_path, descriptor):
+    sysfs_root = tmp_path / "sys"
+    dev_root = tmp_path / "dev"
+    sysfs_root.mkdir()
+    dev_root.mkdir()
+    _fake_interface(sysfs_root, dev_root, "1", descriptor=descriptor, interface_number="03")
+    interfaces = discover_interfaces(sysfs_root=sysfs_root, dev_root=dev_root)
+    assert not interfaces[0].is_control_interface
+    assert interfaces[0].usage_page is None
+    assert find_control_interface(sysfs_root=sysfs_root, dev_root=dev_root) is None
+
+
+def test_discovery_accepts_four_byte_control_usage_page(tmp_path):
+    sysfs_root = tmp_path / "sys"
+    dev_root = tmp_path / "dev"
+    sysfs_root.mkdir()
+    dev_root.mkdir()
+    _fake_interface(
+        sysfs_root,
+        dev_root,
+        "1",
+        descriptor=b"\x07\x01\xff\x00\x00\x09\x01",
+        interface_number="03",
+    )
+    assert find_control_interface(sysfs_root=sysfs_root, dev_root=dev_root).usage_page == 0xFF01

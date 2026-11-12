@@ -4,7 +4,7 @@ import pytest
 
 from aero_keyboard.device import KeyboardDevice, _hidiogfeature, _hidiocsfeature
 from aero_keyboard.discovery import HidInterface
-from aero_keyboard.errors import DevicePermissionError, ProtocolValidationError
+from aero_keyboard.errors import DeviceCommunicationError, DevicePermissionError, ProtocolValidationError
 from aero_keyboard.protocol import (
     CMD_GET_EFFECT,
     CMD_GET_FIRMWARE,
@@ -32,16 +32,19 @@ def _interface(*, control=True):
 
 
 class FakeIoctl:
-    def __init__(self, response=None):
+    def __init__(self, response=None, *, send_count=9, receive_count=9):
         self.calls = []
         self.response = response or bytes(9)
+        self.send_count = send_count
+        self.receive_count = receive_count
 
     def __call__(self, fd, request, buffer, mutate):
         self.calls.append((fd, request, bytes(buffer), mutate))
         if request == _hidiogfeature(9):
-            for index, value in enumerate(self.response):
+            for index, value in enumerate(self.response[:self.receive_count]):
                 buffer[index] = value
-        return 0
+            return self.receive_count
+        return self.send_count
 
 
 def test_context_manager_opens_and_closes_once():
@@ -85,7 +88,7 @@ def test_set_static_sends_validated_feature_report():
 
 
 def test_firmware_query_sends_command_and_decodes_response():
-    ioctl = FakeIoctl(bytes([0, 0, 2, 34, 0, 0, 0, 0, 0]))
+    ioctl = FakeIoctl(bytes([0, CMD_GET_FIRMWARE, 2, 34, 0, 0, 0, 0, 0]))
     keyboard = KeyboardDevice(_interface(), opener=lambda path, flags: 42, ioctl=ioctl)
     assert keyboard.firmware_version() == "2.3.4"
     assert ioctl.calls[0][2][1] == CMD_GET_FIRMWARE
@@ -100,3 +103,82 @@ def test_effect_query_decodes_response():
     assert state.effect is Effect.STATIC
     assert state.color is Color.BLUE
     assert state.brightness == 40
+
+
+@pytest.mark.parametrize("count", [0, 2, 8, 10])
+@pytest.mark.parametrize("direction", ["send", "receive"])
+def test_feature_transfer_requires_exact_report_size(direction, count):
+    response = bytes([0, CMD_GET_EFFECT, 0, Effect.STATIC, 3, 40, Color.BLUE, 0, 0])
+    ioctl = FakeIoctl(
+        response,
+        send_count=count if direction == "send" else 9,
+        receive_count=count if direction == "receive" else 9,
+    )
+    keyboard = KeyboardDevice(_interface(), opener=lambda path, flags: 42, ioctl=ioctl)
+    with pytest.raises(DeviceCommunicationError, match=rf"returned {count} bytes; expected 9"):
+        if direction == "send":
+            keyboard.set_static(Color.BLUE, brightness=40)
+        else:
+            keyboard.effect_state()
+
+
+@pytest.mark.parametrize("operation", ["send", "receive", "close"])
+def test_transport_oserrors_become_domain_errors(operation):
+    def fail(*args):
+        raise OSError(5, "Input/output error")
+
+    def ioctl(fd, request, buffer, mutate):
+        if operation == "send" or request == _hidiogfeature(9):
+            return fail()
+        return 9
+
+    keyboard = KeyboardDevice(
+        _interface(),
+        opener=lambda path, flags: 42,
+        closer=fail if operation == "close" else lambda fd: None,
+        ioctl=ioctl,
+    )
+    keyboard.open()
+    with pytest.raises(DeviceCommunicationError, match="Input/output error") as error:
+        if operation == "close":
+            keyboard.close()
+        elif operation == "send":
+            keyboard.set_static(Color.BLUE, brightness=40)
+        else:
+            keyboard.effect_state()
+    assert isinstance(error.value.__cause__, OSError)
+
+
+@pytest.mark.parametrize(
+    ("report_id", "command"),
+    [(1, CMD_GET_FIRMWARE), (0, CMD_GET_EFFECT), (0, 0)],
+)
+def test_firmware_rejects_unexpected_response_identity(report_id, command):
+    ioctl = FakeIoctl(bytes([report_id, command, 2, 34, 0, 0, 0, 0, 0]))
+    keyboard = KeyboardDevice(_interface(), opener=lambda path, flags: 42, ioctl=ioctl)
+    with pytest.raises(ProtocolValidationError, match="firmware response"):
+        keyboard.firmware_version()
+
+
+def test_failed_close_clears_handle_and_allows_reopen():
+    opened = []
+    closed = []
+
+    def opener(path, flags):
+        fd = 42 + len(opened)
+        opened.append(fd)
+        return fd
+
+    def closer(fd):
+        closed.append(fd)
+        raise OSError(5, "Input/output error")
+
+    keyboard = KeyboardDevice(_interface(), opener=opener, closer=closer)
+    keyboard.open()
+    with pytest.raises(DeviceCommunicationError):
+        keyboard.close()
+    assert not keyboard.is_open
+    keyboard.close()
+    assert closed == [42]
+    keyboard.open()
+    assert opened == [42, 43]
