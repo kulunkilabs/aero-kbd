@@ -77,9 +77,6 @@ makepkg -si
 This installs the GUI, the `aero-kbd` command, the menu entry, and the
 udev rule. `packaging/arch-git` builds the development branch instead.
 
-An AUR package (`aero-kbd`) is planned, but new AUR account registration
-is currently closed, so `yay -S aero-kbd` does not work yet.
-
 ### Any distribution: one-line installer
 
 ```bash
