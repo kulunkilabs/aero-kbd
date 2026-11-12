@@ -6,10 +6,10 @@ import sys
 from collections.abc import Sequence
 
 from PySide6.QtCore import QCoreApplication, QStandardPaths, Qt
-from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
 from .main_window import MainWindow
+from .widgets import app_icon
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -20,9 +20,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     desktop_file = "io.github.aero_keyboard_control.desktop"
     if QStandardPaths.locate(QStandardPaths.ApplicationsLocation, desktop_file):
         application.setDesktopFileName("io.github.aero_keyboard_control")
-    application.setWindowIcon(
-        QIcon.fromTheme("io.github.aero_keyboard_control", QIcon.fromTheme("input-keyboard"))
-    )
+    application.setWindowIcon(app_icon())
     window = MainWindow()
     window.show()
     return application.exec()

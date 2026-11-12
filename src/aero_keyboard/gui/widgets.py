@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import QEasingCurve, QPointF, QRectF, QSize, Qt, QVariantAnimation
 from PySide6.QtGui import QColor, QCursor, QIcon, QPainter, QPainterPath, QPaintEvent, QPen, QPixmap, QRadialGradient
 from PySide6.QtWidgets import QAbstractButton, QPushButton, QSizePolicy, QWidget
+
+APP_ID = "io.github.aero_keyboard_control"
 
 # Key widths per row, in key units, loosely following a laptop layout.
 KEY_ROWS = (
@@ -27,6 +31,21 @@ def _mix(start: QColor, end: QColor, amount: float) -> QColor:
         round(start.green() + (end.green() - start.green()) * amount),
         round(start.blue() + (end.blue() - start.blue()) * amount),
     )
+
+
+def app_icon() -> QIcon:
+    """The application icon, from the bundled file so it never depends on the icon theme."""
+    here = Path(__file__).resolve()
+    candidates = (
+        here.with_name("app-icon.svg"),  # installed wheel
+        here.parents[3] / "packaging" / "icon" / f"{APP_ID}.svg",  # source checkout
+    )
+    for candidate in candidates:
+        if candidate.is_file():
+            icon = QIcon(str(candidate))
+            if not icon.isNull():
+                return icon
+    return QIcon.fromTheme(APP_ID, QIcon.fromTheme("input-keyboard"))
 
 
 def coffee_icon(color: QColor, size: int = 18) -> QIcon:

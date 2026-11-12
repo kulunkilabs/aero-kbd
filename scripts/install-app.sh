@@ -120,6 +120,15 @@ if command -v update-desktop-database >/dev/null 2>&1; then
   update-desktop-database -q "$applications_dir" 2>/dev/null || true
 fi
 
+# Menus cache icons; nudge them so the new icon shows without logging out.
+touch "$data_home/icons/hicolor" 2>/dev/null || true
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+  gtk-update-icon-cache -q -t -f "$data_home/icons/hicolor" 2>/dev/null || true
+fi
+if command -v kbuildsycoca6 >/dev/null 2>&1; then
+  kbuildsycoca6 >/dev/null 2>&1 || true
+fi
+
 if [ "$skip_udev" = false ]; then
   if [ -w /etc/udev/rules.d ] 2>/dev/null; then
     # Already allowed to write the rule (e.g. as root), so do not depend on sudo.

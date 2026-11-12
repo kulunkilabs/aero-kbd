@@ -35,6 +35,9 @@ aero-kbd-gui = "aero_keyboard.gui.app:main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/aero_keyboard"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"packaging/icon/io.github.aero_keyboard_control.svg" = "aero_keyboard/gui/app-icon.svg"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["hardware: tests that communicate with a real keyboard"]

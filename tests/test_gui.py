@@ -734,3 +734,12 @@ def test_refresh_passes_the_discovered_node_and_follows_a_new_one(application, w
     assert window._device is not first
     assert window._device.interface.device_path == "/dev/hidraw-new"
     assert "/dev/hidraw-new" in window.device_details.text()
+
+
+def test_app_icon_comes_from_the_bundled_file(application) -> None:
+    from aero_keyboard.gui.widgets import app_icon
+
+    icon = app_icon()
+
+    assert not icon.isNull()
+    assert not icon.pixmap(64, 64).isNull()

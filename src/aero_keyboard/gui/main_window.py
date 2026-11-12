@@ -33,7 +33,7 @@ from aero_keyboard.discovery import HidInterface, find_control_interface
 from aero_keyboard.errors import DeviceCommunicationError
 from aero_keyboard.protocol import Color, Effect, EffectState
 
-from .widgets import ColorSwatch, KeyboardPreview, RippleButton, coffee_icon
+from .widgets import ColorSwatch, KeyboardPreview, RippleButton, app_icon, coffee_icon
 from .worker import DeviceWorker
 
 # Coalesce a drag or a burst of clicks into one write instead of one per step.
@@ -338,7 +338,7 @@ class MainWindow(QMainWindow):
 
         identity = QHBoxLayout()
         identity.setSpacing(16)
-        icon = QIcon.fromTheme("io.github.aero_keyboard_control", QIcon.fromTheme("input-keyboard"))
+        icon = app_icon()
         if not icon.isNull():
             logo = QLabel()
             logo.setPixmap(icon.pixmap(56, 56))
