@@ -28,10 +28,9 @@ release of the same package, never as a separate per-model build.
    The `Release` workflow checks that the tag matches the package version,
    runs the tests, and publishes a GitHub release with the wheel attached.
 
-## Updating the AUR package
+## Updating the Arch package
 
-The AUR hosts each package in its own git repository; `packaging/arch/PKGBUILD`
-is the copy of record.
+`packaging/arch/PKGBUILD` builds the tagged release.
 
 1. Set `pkgver` in `packaging/arch/PKGBUILD` to the new version and reset
    `pkgrel` to `1`.
@@ -43,20 +42,10 @@ is the copy of record.
    makepkg -si
    ```
 
-3. Publish (first time: `git clone ssh://aur@aur.archlinux.org/aero-kbd.git`):
+3. Commit and push the updated `PKGBUILD`.
 
-   ```bash
-   cp PKGBUILD /path/to/aur/aero-kbd/
-   cd /path/to/aur/aero-kbd
-   makepkg --printsrcinfo > .SRCINFO
-   git add PKGBUILD .SRCINFO
-   git commit -m "Update to 0.1.0b1"
-   git push
-   ```
-
-`packaging/arch-git/PKGBUILD` is the `aero-kbd-git` package. It
-follows `main`, so it only needs republishing when its dependencies or install
-steps change.
+`packaging/arch-git/PKGBUILD` follows `main`, so it only needs changing when
+its dependencies or install steps change.
 
 ## One-line installer
 
