@@ -15,7 +15,7 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QEventLoop, QTimer
+from PySide6.QtCore import QCoreApplication, QEvent, QEventLoop, QTimer
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication, QStyleFactory
 
@@ -90,6 +90,9 @@ def main() -> int:
             window.grab().save(str(target))
             print(target)
         window.close()
+        # Delete it now: PySide 6.12 crashes at exit on closed windows left behind.
+        window.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
     return 0
 
 

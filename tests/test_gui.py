@@ -8,7 +8,7 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import QEventLoop, QTimer
+from PySide6.QtCore import QCoreApplication, QEvent, QEventLoop, QTimer
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication
 
@@ -102,6 +102,10 @@ def window(application):
     instance = MainWindow(auto_refresh=False)
     yield instance
     instance.close()
+    # A closed window that is only dropped stays alive in Qt; PySide 6.12
+    # crashes at interpreter exit when it finds such leftovers, so delete it now.
+    instance.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
 
 def test_window_exposes_expected_pages_and_safe_effect(window):
