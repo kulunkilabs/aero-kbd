@@ -460,5 +460,7 @@ def test_the_about_page_shows_the_version_and_opens_project_links(window, monkey
 
     window.project_button.click()
     window.issue_button.click()
+    window.donate_button.click()
 
-    assert opened == [main_window.PROJECT_URL, f"{main_window.PROJECT_URL}/issues"]
+    assert opened == [main_window.PROJECT_URL, f"{main_window.PROJECT_URL}/issues", "https://ko-fi.com/kulunkilabs"]
+    assert not window.donate_button.icon().isNull()

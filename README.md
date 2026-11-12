@@ -144,6 +144,11 @@ The protocol implementation will build on and attribute the MIT-licensed
 reverse-engineering work in
 [misaelzapata/aeroctl-linux-indicator](https://github.com/misaelzapata/aeroctl-linux-indicator).
 
+## Support
+
+If this is useful to you, you can
+[buy me a coffee on Ko-fi](https://ko-fi.com/kulunkilabs).
+
 ## License
 
 MIT

@@ -32,7 +32,7 @@ from aero_keyboard.device import KeyboardDevice
 from aero_keyboard.discovery import find_control_interface
 from aero_keyboard.protocol import Color, Effect, EffectState
 
-from .widgets import ColorSwatch, KeyboardPreview, RippleButton
+from .widgets import ColorSwatch, KeyboardPreview, RippleButton, coffee_icon
 from .worker import DeviceWorker
 
 # Coalesce a drag or a burst of clicks into one write instead of one per step.
@@ -52,6 +52,7 @@ COLOR_HEX = {
 }
 
 PROJECT_URL = "https://github.com/kulunkilabs/aero-kbd"
+DONATE_URL = "https://ko-fi.com/kulunkilabs"
 PRIOR_WORK_URL = "https://github.com/misaelzapata/aeroctl-linux-indicator"
 
 # Page label and the freedesktop icon shown beside it when the theme has one.
@@ -383,6 +384,11 @@ class MainWindow(QMainWindow):
         self.issue_button.setToolTip(f"{PROJECT_URL}/issues")
         self.issue_button.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(f"{PROJECT_URL}/issues")))
         links.addWidget(self.issue_button)
+        self.donate_button = QPushButton("Buy me a coffee")
+        self.donate_button.setToolTip(f"Support the project on Ko-fi: {DONATE_URL}")
+        self.donate_button.setIconSize(QSize(18, 18))
+        self.donate_button.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(DONATE_URL)))
+        links.addWidget(self.donate_button)
         links.addStretch()
         content.addLayout(links)
 
@@ -493,6 +499,7 @@ class MainWindow(QMainWindow):
             for name, value in facts
         )
         self.about_facts.setText(f'<table cellspacing="0" cellpadding="0">{rows}</table>')
+        self.donate_button.setIcon(coffee_icon(text))
         # White would vanish on a light theme's pale buttons, so match each label.
         self.apply_button.set_ripple_color(accent_text)
         self.off_button.set_ripple_color(text)

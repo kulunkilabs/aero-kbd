@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QEasingCurve, QPointF, QRectF, QSize, Qt, QVariantAnimation
-from PySide6.QtGui import QColor, QCursor, QPainter, QPainterPath, QPaintEvent, QPen, QRadialGradient
+from PySide6.QtGui import QColor, QCursor, QIcon, QPainter, QPainterPath, QPaintEvent, QPen, QPixmap, QRadialGradient
 from PySide6.QtWidgets import QAbstractButton, QPushButton, QSizePolicy, QWidget
 
 # Key widths per row, in key units, loosely following a laptop layout.
@@ -27,6 +27,35 @@ def _mix(start: QColor, end: QColor, amount: float) -> QColor:
         round(start.green() + (end.green() - start.green()) * amount),
         round(start.blue() + (end.blue() - start.blue()) * amount),
     )
+
+
+def coffee_icon(color: QColor, size: int = 18) -> QIcon:
+    """Draw a small steaming cup in `color`, so it matches the button text in any theme."""
+    scale = 3  # Oversample so the icon stays crisp on high-DPI screens.
+    pixmap = QPixmap(size * scale, size * scale)
+    pixmap.fill(Qt.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.Antialiasing)
+    painter.scale(size * scale / 18, size * scale / 18)
+    painter.setPen(QPen(color, 1.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+    painter.setBrush(Qt.NoBrush)
+    cup = QPainterPath(QPointF(3, 8))
+    cup.lineTo(13, 8)
+    cup.lineTo(13, 12)
+    cup.quadTo(13, 16, 9, 16)
+    cup.lineTo(7, 16)
+    cup.quadTo(3, 16, 3, 12)
+    cup.closeSubpath()
+    painter.drawPath(cup)
+    handle = QPainterPath(QPointF(13, 9.5))
+    handle.cubicTo(17, 9, 17, 13.5, 13, 13)
+    painter.drawPath(handle)
+    for x in (6, 10):
+        steam = QPainterPath(QPointF(x, 5.5))
+        steam.cubicTo(x - 1.5, 4.2, x + 1.5, 3.3, x, 2)
+        painter.drawPath(steam)
+    painter.end()
+    return QIcon(pixmap)
 
 
 class ColorSwatch(QAbstractButton):
