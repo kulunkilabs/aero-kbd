@@ -11,5 +11,4 @@ sudo udevadm control --reload-rules
 sudo udevadm trigger --subsystem-match=hidraw --action=add
 udevadm settle
 
-printf '\nInstalled %s\n\nRGB device access:\n' "$rule_target"
-getfacl -cp /dev/hidraw3
+printf '\nInstalled %s\n' "$rule_target"

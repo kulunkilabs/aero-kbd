@@ -1,0 +1,50 @@
+# Maintainer: kulunkilabs
+#
+# Development package that follows the main branch.
+pkgname=aero-keyboard-control-git
+_pkgname=aero-keyboard-control
+pkgver=0.1.0b1
+pkgrel=1
+pkgdesc="Linux RGB keyboard control for GIGABYTE Aero laptops (development version)"
+arch=('any')
+url="https://github.com/kulunkilabs/aero-keyboard-control"
+license=('MIT')
+depends=('python' 'pyside6')
+makedepends=('git' 'python-build' 'python-installer' 'python-hatchling')
+checkdepends=('python-pytest')
+provides=("$_pkgname")
+conflicts=("$_pkgname")
+source=("$_pkgname::git+$url.git")
+sha256sums=('SKIP')
+
+pkgver() {
+  cd "$_pkgname"
+  (
+    set -o pipefail
+    git describe --long --tags --abbrev=7 2>/dev/null | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g' ||
+      printf 'r%s.%s' "$(git rev-list --count HEAD)" "$(git rev-parse --short=7 HEAD)"
+  )
+}
+
+build() {
+  cd "$_pkgname"
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd "$_pkgname"
+  QT_QPA_PLATFORM=offscreen PYTHONPATH=src python -m pytest
+}
+
+package() {
+  cd "$_pkgname"
+  python -m installer --destdir="$pkgdir" dist/*.whl
+
+  install -Dm644 packaging/desktop/io.github.aero_keyboard_control.desktop \
+    "$pkgdir/usr/share/applications/io.github.aero_keyboard_control.desktop"
+  install -Dm644 packaging/icon/io.github.aero_keyboard_control.svg \
+    "$pkgdir/usr/share/icons/hicolor/scalable/apps/io.github.aero_keyboard_control.svg"
+  install -Dm644 packaging/udev/70-aero-keyboard.rules \
+    "$pkgdir/usr/lib/udev/rules.d/70-aero-keyboard.rules"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$_pkgname/LICENSE"
+}

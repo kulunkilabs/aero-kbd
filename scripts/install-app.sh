@@ -11,6 +11,7 @@ Install the GUI into ~/.local (virtualenv) and register a launcher icon.
 
 Options:
   --skip-udev    Do not install or reload the udev rule (requires sudo).
+  --no-editable  Copy the code into the virtualenv instead of linking this checkout.
   --uninstall    Remove the user install (venv, desktop entry, icon).
   -h, --help     Show this help.
 
@@ -35,11 +36,13 @@ icon_dst="$icons_dir/${desktop_id}.svg"
 
 skip_udev=false
 uninstall=false
+editable=true
 
 for arg in "$@"; do
   case "$arg" in
   --skip-udev) skip_udev=true ;;
   --uninstall) uninstall=true ;;
+  --no-editable) editable=false ;;
   -h | --help)
     usage
     exit 0
@@ -76,7 +79,13 @@ if [ ! -x "$venv_dir/bin/python" ]; then
 fi
 
 "$venv_dir/bin/pip" install -q --upgrade pip
-"$venv_dir/bin/pip" install -q -e "$project_dir[gui]"
+if "$editable"; then
+  "$venv_dir/bin/pip" install -q -e "$project_dir[gui]"
+else
+  # A linked install would break as soon as a downloaded checkout is deleted.
+  "$venv_dir/bin/pip" install -q --upgrade --force-reinstall --no-deps "$project_dir"
+  "$venv_dir/bin/pip" install -q "$project_dir[gui]"
+fi
 
 gui_bin="$venv_dir/bin/aero-kbd-gui"
 if [ ! -x "$gui_bin" ]; then
@@ -114,6 +123,6 @@ Aero Keyboard Control is installed.
   Data/venv:  $state_dir
 
 Open "Aero Keyboard Control" from your application menu (Settings or search "Aero").
-To remove: $0 --uninstall
+To remove: run this installer again with --uninstall
 
 EOF
