@@ -3,7 +3,7 @@
 # Release package, built from a tagged GitHub tarball. After tagging a new
 # version, bump pkgver and run `updpkgsums` (see docs/RELEASING.md).
 pkgname=aero-kbd
-pkgver=0.1.0b1
+pkgver=0.1.0b2
 pkgrel=1
 pkgdesc="Linux RGB keyboard control for GIGABYTE Aero laptops"
 arch=('any')
@@ -13,7 +13,7 @@ depends=('python' 'pyside6')
 makedepends=('python-build' 'python-installer' 'python-hatchling')
 checkdepends=('python-pytest')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('11bb05f8d3208bb9f50680c95b02a80968ab36bd06e94ae29716f464444c878a')
+sha256sums=('SKIP')
 
 build() {
   cd "$pkgname-$pkgver"

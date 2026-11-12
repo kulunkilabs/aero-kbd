@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "aero-kbd"
-version = "0.1.0b1"
+version = "0.1.0b2"
 description = "Linux RGB keyboard control for GIGABYTE Aero laptops"
 readme = "README.md"
 requires-python = ">=3.11"

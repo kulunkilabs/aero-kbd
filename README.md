@@ -21,7 +21,7 @@ Fedora and Arch-based systems, including Omarchy and CachyOS.
 
 ## Status
 
-This is a beta release (`0.1.0b1`): it works on the one validated laptop
+This is a beta release (`0.1.0b2`): it works on the one validated laptop
 below, and reports from other owners are welcome.
 
 The protocol core and guarded static-color commands are validated on a
