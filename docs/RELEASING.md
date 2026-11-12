@@ -16,6 +16,8 @@ release of the same package, never as a separate per-model build.
 
 1. Set the new version in `pyproject.toml` and `src/aero_keyboard/__init__.py`.
 2. Run the tests: `.venv/bin/pytest`.
+   If the interface changed, refresh the README screenshots:
+   `QT_SCALE_FACTOR=2 .venv/bin/python scripts/make-screenshots.py`.
 3. Commit, then tag and push:
 
    ```bash

@@ -2,6 +2,19 @@
 
 Cross-distribution Linux control for the RGB keyboard in GIGABYTE Aero laptops.
 
+![The Lighting page: a keyboard preview, color swatches and a brightness slider](docs/screenshots/lighting-dark.png)
+
+<details>
+<summary>More screenshots</summary>
+
+| Light theme | Device page | About page |
+| --- | --- | --- |
+| ![Lighting page in a light theme](docs/screenshots/lighting-light.png) | ![Device information page](docs/screenshots/device-dark.png) | ![About page](docs/screenshots/about-dark.png) |
+
+</details>
+
+The interface follows your desktop's light or dark theme and accent color.
+
 The initial hardware target is the GIGABYTE AERO X16 1WH with the ITE-829X
 keyboard controller (`0414:8104`). The first supported distributions will be
 Fedora and Arch-based systems, including Omarchy and CachyOS.
