@@ -1,6 +1,6 @@
 #!/bin/sh
 # Install Aero Keyboard Control for the current user (XDG app menu icon + GUI).
-# Works on Arch, CachyOS, Omarchy, and other rolling Arch-based distros with python3.
+# Distribution-independent: it needs only python3 with the venv module.
 set -eu
 
 usage() {
